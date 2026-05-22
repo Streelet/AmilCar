@@ -1,0 +1,31 @@
+# --- Credenciales sensibles ---
+.env
+
+# --- Flutter / Dart ---
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.lock.bak
+
+# --- IDE ---
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# --- Generados por plataforma ---
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.fvm/
+
+# --- Sistema operativo ---
+.DS_Store
+Thumbs.db
+
+# --- Logs / temporales ---
+*.log

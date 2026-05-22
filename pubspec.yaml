@@ -1,0 +1,40 @@
+name: amilcar
+description: ERP / Kanban para Mecánica Express Móvil e Internacional.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Backend / Realtime ---
+  supabase_flutter: ^2.8.0
+
+  # --- Configuración segura de credenciales ---
+  flutter_dotenv: ^5.2.1
+
+  # --- Gestión de estado ---
+  flutter_riverpod: ^2.6.1
+
+  # --- Tipografía Manrope (DESIGN.md) ---
+  google_fonts: ^6.2.1
+
+  # --- Selección de archivos (subir PDFs y fotos en el modal) ---
+  file_picker: ^8.0.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  # El archivo .env se empaqueta como asset para flutter_dotenv.
+  assets:
+    - .env

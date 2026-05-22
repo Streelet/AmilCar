@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "amilcar-web",
+      "runtimeExecutable": "dart",
+      "runtimeArgs": [
+        "C:\\Users\\erick\\AppData\\Local\\Temp\\amilcar_serve.dart"
+      ],
+      "port": 49317
+    }
+  ]
+}
