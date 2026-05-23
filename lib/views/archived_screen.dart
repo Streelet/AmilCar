@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/estimado.dart';
+import '../models/orden_trabajo.dart';
 import '../providers/auth_provider.dart';
-import '../providers/estimados_provider.dart';
+import '../providers/clientes_provider.dart';
+import '../providers/ordenes_trabajo_provider.dart';
 import '../theme/app_colors.dart';
 import 'widgets/soft_card.dart';
 
@@ -17,7 +18,7 @@ class ArchivedScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final archivados = ref.watch(estimadosArchivadosProvider);
+    final archivados = ref.watch(ordenesTrabajoArchivadasProvider);
     final perfil = ref.watch(currentPerfilProvider);
     final esAdmin = perfil?.rol.isAdmin ?? false;
 
@@ -39,13 +40,13 @@ class ArchivedScreen extends ConsumerWidget {
                         style: Theme.of(context).textTheme.labelMedium,
                       ),
                       const SizedBox(height: 12),
-                      for (final e in archivados)
+                      for (final o in archivados)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _ArchivadoCard(
-                            estimado: e,
+                            ordenTrabajo: o,
                             puedeRestaurar: esAdmin,
-                            onRestaurar: () => _restaurar(context, ref, e),
+                            onRestaurar: () => _restaurar(context, ref, o),
                           ),
                         ),
                     ],
@@ -59,34 +60,39 @@ class ArchivedScreen extends ConsumerWidget {
   Future<void> _restaurar(
     BuildContext context,
     WidgetRef ref,
-    Estimado estimado,
+    OrdenTrabajo ordenTrabajo,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
-    await ref.read(estimadosControllerProvider).restaurar(estimado);
+    final cliente = ref.read(clientesByIdProvider)[ordenTrabajo.clienteId];
+    final nombre = cliente?.nombre ?? 'el cliente';
+    await ref
+        .read(ordenesTrabajoControllerProvider)
+        .restaurar(ordenTrabajo);
     messenger.showSnackBar(
       SnackBar(
-        content: Text(
-          'Orden de ${estimado.clienteNombre} restaurada al tablero.',
-        ),
+        content: Text('Orden de $nombre restaurada al tablero.'),
       ),
     );
   }
 }
 
-class _ArchivadoCard extends StatelessWidget {
+class _ArchivadoCard extends ConsumerWidget {
   const _ArchivadoCard({
-    required this.estimado,
+    required this.ordenTrabajo,
     required this.puedeRestaurar,
     required this.onRestaurar,
   });
 
-  final Estimado estimado;
+  final OrdenTrabajo ordenTrabajo;
   final bool puedeRestaurar;
   final VoidCallback onRestaurar;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final cliente =
+        ref.watch(clientesByIdProvider)[ordenTrabajo.clienteId];
+    final direccion = cliente?.direccion;
 
     return SoftCard(
       child: Column(
@@ -109,17 +115,16 @@ class _ArchivadoCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(estimado.vehiculoResumen,
+                    Text(ordenTrabajo.vehiculoResumen,
                         style: theme.textTheme.titleMedium),
-                    Text(estimado.clienteNombre,
+                    Text(cliente?.nombre ?? 'Cliente desconocido',
                         style: theme.textTheme.bodyMedium),
                   ],
                 ),
               ),
             ],
           ),
-          if (estimado.direccion != null &&
-              estimado.direccion!.isNotEmpty) ...[
+          if (direccion != null && direccion.isNotEmpty) ...[
             const SizedBox(height: 12),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +133,7 @@ class _ArchivadoCard extends StatelessWidget {
                     size: 16, color: AppColors.onSurfaceVariant),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(estimado.direccion!,
+                  child: Text(direccion,
                       style: theme.textTheme.bodyMedium),
                 ),
               ],

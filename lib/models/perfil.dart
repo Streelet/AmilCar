@@ -1,6 +1,6 @@
 /// Rol del usuario dentro del sistema. Modula accesos e interfaz en vivo.
 ///
-/// - [admin]  : gestiona estimados/finanzas a distancia desde la PC.
+/// - [admin]  : gestiona órdenes / finanzas a distancia desde la PC.
 /// - [asesor] : técnico en campo (otro país) atendiendo vehículos con tablet.
 enum UserRole {
   admin('admin', 'Administrador'),

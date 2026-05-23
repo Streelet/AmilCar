@@ -1,6 +1,6 @@
 import '../config/app_config.dart';
 
-/// Una cotización individual dentro de un [Estimado].
+/// Una cotización individual dentro de una [OrdenTrabajo].
 ///
 /// En Supabase se guarda como objeto JSON dentro del arreglo `pdfs_urls`,
 /// agrupando: título, url del PDF y monto sugerido.

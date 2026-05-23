@@ -1,4 +1,6 @@
-import '../models/estimado.dart';
+import '../models/cliente.dart';
+import '../models/orden_trabajo.dart';
+import '../models/nota.dart';
 import '../models/pdf_cotizacion.dart';
 import '../models/perfil.dart';
 
@@ -20,6 +22,9 @@ class DemoAccount {
 /// Permite probar el 100% de la lógica de negocio sin internet ni tablas:
 /// login simulado, cambio de roles, Kanban con drag&drop, botones de PDF y
 /// el diálogo de aprobación de monto.
+///
+/// La normalización refleja la arquitectura real: un mismo `Cliente` puede
+/// referenciarse desde varias `OrdenTrabajo` vía `clienteId`.
 class MockData {
   const MockData._();
 
@@ -51,32 +56,116 @@ class MockData {
     ),
   ];
 
-  /// Genera una copia fresca y mutable de los estimados ficticios.
-  /// El repositorio mock trabaja sobre esta lista en memoria.
-  static List<Estimado> seedEstimados() {
+  /// Genera una copia fresca y mutable del directorio de clientes ficticio.
+  /// El [MockClientesRepository] trabaja sobre esta lista en memoria.
+  static List<Cliente> seedClientes() {
+    return [
+      const Cliente(
+        id: 'c1',
+        nombre: 'María González',
+        telefono: '+502 5512 8834',
+        direccion: 'Km 14.5 Carretera a El Salvador, frente a Pradera',
+        email: 'maria.gonzalez@gmail.com',
+      ),
+      const Cliente(
+        id: 'c2',
+        nombre: 'Carlos Méndez',
+        telefono: '+502 4478 1290',
+        direccion: 'Zona 10, 5a Avenida, varado en parqueo',
+        email: 'carlos.mendez@outlook.com',
+      ),
+      const Cliente(
+        id: 'c3',
+        nombre: 'Ana Lucía Pérez',
+        telefono: '+502 3320 9981',
+        direccion: 'Mixco, Calzada San Juan, taller cerrado',
+        email: null,
+      ),
+      const Cliente(
+        id: 'c4',
+        nombre: 'Roberto Castillo',
+        telefono: '+502 5566 7788',
+        direccion: 'Antigua Guatemala, 3a Calle Poniente',
+        email: 'rcastillo@empresa.com',
+      ),
+      const Cliente(
+        id: 'c5',
+        nombre: 'Lcda. Patricia Solórzano',
+        telefono: '+502 4012 3344',
+        direccion: 'Zona 15, Vista Hermosa II',
+        email: 'patricia.solorzano@bufete.gt',
+      ),
+      const Cliente(
+        id: 'c6',
+        nombre: 'Jorge Ramírez',
+        telefono: '+502 5901 2233',
+        direccion: 'Villa Nueva, Bulevar El Frutal',
+        email: null,
+      ),
+      const Cliente(
+        id: 'c7',
+        nombre: 'Sofía Aguilar',
+        telefono: '+502 4455 6677',
+        direccion: 'Zona 16, Cayalá',
+        email: 'sofia.aguilar@gmail.com',
+      ),
+      const Cliente(
+        id: 'c8',
+        nombre: 'Empresa TransCargo S.A.',
+        telefono: '+502 2233 4455',
+        direccion: 'Amatitlán, ruta al Pacífico Km 28',
+        email: 'flotilla@transcargo.com.gt',
+      ),
+      const Cliente(
+        id: 'c9',
+        nombre: 'Diego Fuentes',
+        telefono: '+502 5677 8899',
+        direccion: 'Zona 11, Colonia Mariscal',
+        email: null,
+      ),
+      const Cliente(
+        id: 'c10',
+        nombre: 'Luis Morales',
+        telefono: '+502 4001 0010',
+        direccion: 'Chimaltenango, entrada principal',
+        email: 'luis.morales@hotmail.com',
+      ),
+    ];
+  }
+
+  /// Genera una copia fresca y mutable de las órdenes de trabajo ficticias.
+  /// El [MockOrdenesTrabajoRepository] trabaja sobre esta lista en memoria.
+  ///
+  /// Nota: la orden `e11` referencia el mismo cliente `c1` (María González)
+  /// que `e1` — caso explícito para demostrar que la normalización soporta
+  /// varias órdenes por cliente.
+  static List<OrdenTrabajo> seedOrdenesTrabajo() {
     final ahora = DateTime.now();
     DateTime hace(int dias) => ahora.subtract(Duration(days: dias));
 
     return [
       // ───────── Columna: Por Hacer ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e1',
-        clienteNombre: 'María González',
-        telefono: '+502 5512 8834',
-        direccion: 'Km 14.5 Carretera a El Salvador, frente a Pradera',
+        clienteId: 'c1',
         vehiculoMarca: 'Toyota',
         vehiculoModelo: 'Hilux',
         vehiculoAnio: 2021,
         vehiculoVin: 'MR0FB22G1M0123456',
         fotosUrls: const ['foto_bumper_1.jpg', 'foto_bumper_2.jpg'],
+        notas: [
+          Nota(
+            texto: 'El cliente reporta un ruido al frenar; revisar pastillas '
+                'antes de cualquier otra cosa.',
+            fecha: hace(1),
+          ),
+        ],
         estadoKanban: EstadoKanban.porHacer,
         createdAt: hace(1),
       ),
-      Estimado(
+      OrdenTrabajo(
         id: 'e2',
-        clienteNombre: 'Carlos Méndez',
-        telefono: '+502 4478 1290',
-        direccion: 'Zona 10, 5a Avenida, varado en parqueo',
+        clienteId: 'c2',
         vehiculoMarca: 'Nissan',
         vehiculoModelo: 'Frontier',
         vehiculoAnio: 2019,
@@ -87,11 +176,9 @@ class MockData {
       ),
 
       // ───────── Columna: Listos para Enviar ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e3',
-        clienteNombre: 'Ana Lucía Pérez',
-        telefono: '+502 3320 9981',
-        direccion: 'Mixco, Calzada San Juan, taller cerrado',
+        clienteId: 'c3',
         vehiculoMarca: 'Honda',
         vehiculoModelo: 'CR-V',
         vehiculoAnio: 2020,
@@ -112,11 +199,9 @@ class MockData {
         estadoKanban: EstadoKanban.listosParaEnviar,
         createdAt: hace(2),
       ),
-      Estimado(
+      OrdenTrabajo(
         id: 'e4',
-        clienteNombre: 'Roberto Castillo',
-        telefono: '+502 5566 7788',
-        direccion: 'Antigua Guatemala, 3a Calle Poniente',
+        clienteId: 'c4',
         vehiculoMarca: 'Mazda',
         vehiculoModelo: 'CX-5',
         vehiculoAnio: 2022,
@@ -134,11 +219,9 @@ class MockData {
       ),
 
       // ───────── Columna: Esperando Aprobación ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e5',
-        clienteNombre: 'Lcda. Patricia Solórzano',
-        telefono: '+502 4012 3344',
-        direccion: 'Zona 15, Vista Hermosa II',
+        clienteId: 'c5',
         vehiculoMarca: 'Toyota',
         vehiculoModelo: 'Land Cruiser Prado',
         vehiculoAnio: 2018,
@@ -161,14 +244,23 @@ class MockData {
             montoSugerido: 6400,
           ),
         ],
+        notas: [
+          Nota(
+            texto: 'Suspensión vencida en ambos amortiguadores delanteros.',
+            fecha: hace(4),
+          ),
+          Nota(
+            texto: 'La clienta pide priorizar el repuesto OEM como primera '
+                'opción.',
+            fecha: hace(3),
+          ),
+        ],
         estadoKanban: EstadoKanban.esperandoAprobacion,
         createdAt: hace(4),
       ),
-      Estimado(
+      OrdenTrabajo(
         id: 'e6',
-        clienteNombre: 'Jorge Ramírez',
-        telefono: '+502 5901 2233',
-        direccion: 'Villa Nueva, Bulevar El Frutal',
+        clienteId: 'c6',
         vehiculoMarca: 'Hyundai',
         vehiculoModelo: 'Tucson',
         vehiculoAnio: 2021,
@@ -191,11 +283,9 @@ class MockData {
       ),
 
       // ───────── Pestaña: Pendientes de Trabajo (ya aprobado) ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e7',
-        clienteNombre: 'Sofía Aguilar',
-        telefono: '+502 4455 6677',
-        direccion: 'Zona 16, Cayalá',
+        clienteId: 'c7',
         vehiculoMarca: 'Kia',
         vehiculoModelo: 'Sportage',
         vehiculoAnio: 2020,
@@ -219,15 +309,13 @@ class MockData {
       ),
 
       // ───────── Pestaña: En Proceso ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e8',
-        clienteNombre: 'Empresa TransCargo S.A.',
-        telefono: '+502 2233 4455',
-        direccion: 'Amatitlán, ruta al Pacífico Km 28',
+        clienteId: 'c8',
         vehiculoMarca: 'Isuzu',
         vehiculoModelo: 'NPR',
         vehiculoAnio: 2017,
-        vehiculoVin: 'JALC4B16X H7012345',
+        vehiculoVin: 'JALC4B16XH7012345',
         fotosUrls: const ['foto_clutch.jpg', 'foto_caja.jpg'],
         pdfsUrls: const [
           PdfCotizacion(
@@ -242,11 +330,9 @@ class MockData {
       ),
 
       // ───────── Pestaña: Pendiente de Pago (solo admin) ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e9',
-        clienteNombre: 'Diego Fuentes',
-        telefono: '+502 5677 8899',
-        direccion: 'Zona 11, Colonia Mariscal',
+        clienteId: 'c9',
         vehiculoMarca: 'Volkswagen',
         vehiculoModelo: 'Amarok',
         vehiculoAnio: 2019,
@@ -259,17 +345,22 @@ class MockData {
             montoSugerido: 6700,
           ),
         ],
+        notas: [
+          Nota(
+            texto: 'Trabajo terminado. Pendiente coordinar el pago con el '
+                'cliente.',
+            fecha: hace(2),
+          ),
+        ],
         montoAprobado: 6700,
         estadoKanban: EstadoKanban.pendientePago,
         createdAt: hace(12),
       ),
 
       // ───────── Archivado (no aparece en el tablero activo) ─────────
-      Estimado(
+      OrdenTrabajo(
         id: 'e10',
-        clienteNombre: 'Cliente Desistió - Luis Morales',
-        telefono: '+502 4001 0010',
-        direccion: 'Chimaltenango, entrada principal',
+        clienteId: 'c10',
         vehiculoMarca: 'Suzuki',
         vehiculoModelo: 'Vitara',
         vehiculoAnio: 2016,
@@ -290,6 +381,34 @@ class MockData {
         estadoKanban: EstadoKanban.esperandoAprobacion,
         archivado: true,
         createdAt: hace(15),
+      ),
+
+      // ───────── Cliente recurrente: María González vuelve con su Hilux ─────────
+      // Demuestra que la normalización admite varias órdenes por cliente.
+      OrdenTrabajo(
+        id: 'e11',
+        clienteId: 'c1',
+        vehiculoMarca: 'Toyota',
+        vehiculoModelo: 'Hilux',
+        vehiculoAnio: 2021,
+        vehiculoVin: 'MR0FB22G1M0123456',
+        fotosUrls: const ['foto_servicio_mantenimiento.jpg'],
+        pdfsUrls: const [
+          PdfCotizacion(
+            titulo: 'Servicio 60.000 km',
+            url: 'cotizacion_hilux_servicio.pdf',
+            montoSugerido: 1850,
+          ),
+        ],
+        notas: [
+          Nota(
+            texto: 'Cliente recurrente. Servicio mayor programado.',
+            fecha: hace(7),
+          ),
+        ],
+        montoAprobado: 1850,
+        estadoKanban: EstadoKanban.pendientePago,
+        createdAt: hace(7),
       ),
     ];
   }

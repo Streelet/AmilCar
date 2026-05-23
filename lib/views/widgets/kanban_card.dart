@@ -1,43 +1,51 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../models/estimado.dart';
+import '../../models/orden_trabajo.dart';
+import '../../providers/clientes_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
-import 'estimado_detail_modal.dart';
+import 'orden_trabajo_detail_modal.dart';
 import 'soft_card.dart';
 
-/// Tarjeta minimalista del estimado.
+/// Tarjeta minimalista de la orden de trabajo en el Kanban.
 ///
 /// Estética limpia: el nombre del cliente como título y el teléfono en una
 /// etiqueta tipo píldora. No repite el estado —ya lo indica la cabecera de
 /// la columna—; conserva el color de la etapa a través del tinte de la
 /// etiqueta. El resto de la información vive en el modal de detalle.
-class KanbanCard extends StatelessWidget {
+///
+/// La información del cliente se resuelve por `clienteId` contra el
+/// directorio reactivo ([clientesByIdProvider]).
+class KanbanCard extends ConsumerWidget {
   const KanbanCard({
     super.key,
-    required this.estimado,
+    required this.ordenTrabajo,
     this.arrastrando = false,
   });
 
-  final Estimado estimado;
+  final OrdenTrabajo ordenTrabajo;
 
   /// `true` cuando se dibuja como "fantasma" flotante durante el arrastre.
   final bool arrastrando;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final estilo = estiloDeEstado(estimado.estadoKanban);
-    final telefono = (estimado.telefono != null && estimado.telefono!.isNotEmpty)
-        ? estimado.telefono!
-        : 'Sin teléfono';
+    final estilo = estiloDeEstado(ordenTrabajo.estadoKanban);
+
+    final cliente = ref.watch(clientesByIdProvider)[ordenTrabajo.clienteId];
+    final nombre = cliente?.nombre ?? 'Cliente desconocido';
+    final tel = cliente?.telefono;
+    final telefono =
+        (tel != null && tel.isNotEmpty) ? tel : 'Sin teléfono';
 
     return SoftCard(
       radius: 18,
       padding: const EdgeInsets.fromLTRB(15, 15, 13, 16),
       onTap: arrastrando
           ? null
-          : () => mostrarDetalleEstimado(context, estimado.id),
+          : () => mostrarDetalleOrdenTrabajo(context, ordenTrabajo.id),
       shadows: arrastrando ? AppShadows.floating : AppShadows.card,
       border: arrastrando
           ? Border.all(color: AppColors.primary, width: 1.5)
@@ -52,7 +60,7 @@ class KanbanCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  estimado.clienteNombre,
+                  nombre,
                   style: theme.textTheme.titleMedium,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -72,6 +80,25 @@ class KanbanCard extends StatelessWidget {
               ),
             ],
           ),
+          // Vehículo, solo si hay datos registrados.
+          if (ordenTrabajo.tieneVehiculo) ...[
+            const SizedBox(height: 11),
+            Row(
+              children: [
+                const Icon(Icons.directions_car_rounded,
+                    size: 14, color: AppColors.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    ordenTrabajo.vehiculoResumen,
+                    style: theme.textTheme.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           // Etiqueta con el teléfono. Tinte del estado para conservar la
           // identidad de color de la columna; número en tono oscuro de alto

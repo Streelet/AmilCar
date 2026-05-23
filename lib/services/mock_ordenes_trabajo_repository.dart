@@ -1,29 +1,31 @@
 import 'dart:async';
 
-import '../models/estimado.dart';
-import 'estimados_repository.dart';
+import '../models/orden_trabajo.dart';
 import 'mock_data.dart';
+import 'ordenes_trabajo_repository.dart';
 
-/// Implementación de [EstimadosRepository] para el MODO MOCKUP.
+/// Implementación de [OrdenesTrabajoRepository] para el MODO MOCKUP.
 ///
-/// Mantiene los estimados en memoria y simula tiempo real con un
+/// Mantiene las órdenes en memoria y simula tiempo real con un
 /// [StreamController] broadcast: cada mutación (drag&drop, aprobación,
 /// archivado) reemite la lista completa, igual que haría un WebSocket.
-class MockEstimadosRepository implements EstimadosRepository {
-  MockEstimadosRepository() : _estimados = MockData.seedEstimados();
+class MockOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
+  MockOrdenesTrabajoRepository()
+      : _ordenesTrabajo = MockData.seedOrdenesTrabajo();
 
-  final List<Estimado> _estimados;
-  final StreamController<List<Estimado>> _controller =
-      StreamController<List<Estimado>>.broadcast();
+  final List<OrdenTrabajo> _ordenesTrabajo;
+  final StreamController<List<OrdenTrabajo>> _controller =
+      StreamController<List<OrdenTrabajo>>.broadcast();
 
   @override
-  Stream<List<Estimado>> watchEstimados() async* {
+  Stream<List<OrdenTrabajo>> watchOrdenesTrabajo() async* {
     // El nuevo suscriptor recibe el snapshot actual y luego las mutaciones.
     yield _snapshot();
     yield* _controller.stream;
   }
 
-  List<Estimado> _snapshot() => List<Estimado>.unmodifiable(_estimados);
+  List<OrdenTrabajo> _snapshot() =>
+      List<OrdenTrabajo>.unmodifiable(_ordenesTrabajo);
 
   void _emit() {
     if (!_controller.isClosed) {
@@ -34,19 +36,20 @@ class MockEstimadosRepository implements EstimadosRepository {
   Future<void> _simularLatencia() =>
       Future<void>.delayed(const Duration(milliseconds: 250));
 
-  int _indexOf(String id) => _estimados.indexWhere((e) => e.id == id);
+  int _indexOf(String id) => _ordenesTrabajo.indexWhere((o) => o.id == id);
 
   @override
   Future<void> updateEstado(String id, EstadoKanban nuevoEstado) async {
     await _simularLatencia();
     final i = _indexOf(id);
     if (i == -1) return;
-    _estimados[i] = _estimados[i].copyWith(estadoKanban: nuevoEstado);
+    _ordenesTrabajo[i] =
+        _ordenesTrabajo[i].copyWith(estadoKanban: nuevoEstado);
     _emit();
   }
 
   @override
-  Future<void> aprobarEstimado({
+  Future<void> aprobarOrdenTrabajo({
     required String id,
     required double montoAprobado,
     required EstadoKanban nuevoEstado,
@@ -54,7 +57,7 @@ class MockEstimadosRepository implements EstimadosRepository {
     await _simularLatencia();
     final i = _indexOf(id);
     if (i == -1) return;
-    _estimados[i] = _estimados[i].copyWith(
+    _ordenesTrabajo[i] = _ordenesTrabajo[i].copyWith(
       montoAprobado: montoAprobado,
       estadoKanban: nuevoEstado,
     );
@@ -66,18 +69,18 @@ class MockEstimadosRepository implements EstimadosRepository {
     await _simularLatencia();
     final i = _indexOf(id);
     if (i == -1) return;
-    _estimados[i] = _estimados[i].copyWith(archivado: archivado);
+    _ordenesTrabajo[i] = _ordenesTrabajo[i].copyWith(archivado: archivado);
     _emit();
   }
 
   @override
-  Future<void> upsertEstimado(Estimado estimado) async {
+  Future<void> upsertOrdenTrabajo(OrdenTrabajo ordenTrabajo) async {
     await _simularLatencia();
-    final i = _indexOf(estimado.id);
+    final i = _indexOf(ordenTrabajo.id);
     if (i == -1) {
-      _estimados.add(estimado);
+      _ordenesTrabajo.add(ordenTrabajo);
     } else {
-      _estimados[i] = estimado;
+      _ordenesTrabajo[i] = ordenTrabajo;
     }
     _emit();
   }

@@ -23,9 +23,14 @@ dependencies:
   google_fonts: ^6.2.1
 
   # --- Selección de archivos (subir PDFs y fotos en el modal) ---
-  file_picker: ^8.0.0
+  # 10.3.10+: usa flutter.compileSdkVersion y aplica el plugin de Kotlin
+  # explícitamente. La serie 11.x rompe el build con AGP 9 + builtInKotlin=false.
+  file_picker: ^10.3.10
 
   cupertino_icons: ^1.0.8
+
+  # --- Visor de PDF integrado (cotizaciones) ---
+  pdfrx: ^2.2.24
 
 dev_dependencies:
   flutter_test:
@@ -38,3 +43,5 @@ flutter:
   # El archivo .env se empaqueta como asset para flutter_dotenv.
   assets:
     - .env
+    # PDF de ejemplo para los Estimados de demostración (modo Mockup).
+    - assets/sample/estimado_demo.pdf

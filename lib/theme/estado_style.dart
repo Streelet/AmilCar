@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../models/estimado.dart';
+import '../models/orden_trabajo.dart';
 
 /// Identidad de color por estado del flujo de trabajo.
 ///

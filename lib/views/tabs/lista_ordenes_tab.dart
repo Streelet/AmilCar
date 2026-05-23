@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../models/estimado.dart';
-import '../../providers/estimados_provider.dart';
+import '../../models/orden_trabajo.dart';
+import '../../providers/clientes_provider.dart';
+import '../../providers/ordenes_trabajo_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import '../widgets/estado_pill.dart';
-import '../widgets/estimado_detail_modal.dart';
+import '../widgets/orden_trabajo_detail_modal.dart';
 import '../widgets/soft_card.dart';
 
-/// Pestaña genérica de listado para los estados posteriores al estimado
-/// ("Pendientes de Trabajo", "En Proceso", "Pendiente de Pago").
+/// Pestaña genérica de listado para las fases posteriores a la fase
+/// "Estimado" ("Pendientes de Trabajo", "En Proceso", "Pendiente de Pago").
 ///
 /// Se sincroniza en tiempo real: cuando un trato se cierra en el Kanban, la
 /// tarjeta aparece aquí automáticamente en ambos dispositivos.
-class ListaEstimadosTab extends ConsumerWidget {
-  const ListaEstimadosTab({
+class ListaOrdenesTrabajoTab extends ConsumerWidget {
+  const ListaOrdenesTrabajoTab({
     super.key,
     required this.estado,
     required this.icono,
@@ -28,7 +29,7 @@ class ListaEstimadosTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(estimadosStreamProvider);
+    final async = ref.watch(ordenesTrabajoStreamProvider);
 
     return async.when(
       loading: () => const Center(
@@ -38,9 +39,9 @@ class ListaEstimadosTab extends ConsumerWidget {
         icono: Icons.cloud_off_rounded,
         texto: 'Sin conexión. Revisa tu red e intenta de nuevo.',
       ),
-      data: (todos) {
-        final items = todos
-            .where((e) => !e.archivado && e.estadoKanban == estado)
+      data: (todas) {
+        final items = todas
+            .where((o) => !o.archivado && o.estadoKanban == estado)
             .toList();
 
         if (items.isEmpty) {
@@ -70,10 +71,11 @@ class ListaEstimadosTab extends ConsumerWidget {
                     spacing: AppSpacing.gutter,
                     runSpacing: 16,
                     children: [
-                      for (final e in items)
+                      for (final o in items)
                         SizedBox(
                           width: anchoItem,
-                          child: _EstimadoCard(estimado: e, icono: icono),
+                          child: _OrdenTrabajoCard(
+                              ordenTrabajo: o, icono: icono),
                         ),
                     ],
                   ),
@@ -87,18 +89,20 @@ class ListaEstimadosTab extends ConsumerWidget {
   }
 }
 
-class _EstimadoCard extends StatelessWidget {
-  const _EstimadoCard({required this.estimado, required this.icono});
-  final Estimado estimado;
+class _OrdenTrabajoCard extends ConsumerWidget {
+  const _OrdenTrabajoCard({required this.ordenTrabajo, required this.icono});
+  final OrdenTrabajo ordenTrabajo;
   final IconData icono;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final estilo = estiloDeEstado(estimado.estadoKanban);
+    final estilo = estiloDeEstado(ordenTrabajo.estadoKanban);
+    final cliente =
+        ref.watch(clientesByIdProvider)[ordenTrabajo.clienteId];
 
     return SoftCard(
-      onTap: () => mostrarDetalleEstimado(context, estimado.id),
+      onTap: () => mostrarDetalleOrdenTrabajo(context, ordenTrabajo.id),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -118,9 +122,10 @@ class _EstimadoCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    EstadoPill(estado: estimado.estadoKanban, dense: true),
+                    EstadoPill(
+                        estado: ordenTrabajo.estadoKanban, dense: true),
                     const SizedBox(height: 6),
-                    Text(estimado.vehiculoResumen,
+                    Text(ordenTrabajo.vehiculoResumen,
                         style: theme.textTheme.titleMedium),
                   ],
                 ),
@@ -132,17 +137,22 @@ class _EstimadoCard extends StatelessWidget {
           const SizedBox(height: 14),
           _Linea(
             icono: Icons.person_outline_rounded,
-            texto: estimado.clienteNombre,
+            texto: cliente?.nombre ?? 'Cliente desconocido',
           ),
-          if (estimado.telefono != null && estimado.telefono!.isNotEmpty)
+          if (cliente?.telefono != null && cliente!.telefono!.isNotEmpty)
             _Linea(
               icono: Icons.phone_outlined,
-              texto: estimado.telefono!,
+              texto: cliente.telefono!,
             ),
-          if (estimado.direccion != null && estimado.direccion!.isNotEmpty)
+          if (cliente?.direccion != null && cliente!.direccion!.isNotEmpty)
             _Linea(
               icono: Icons.location_on_outlined,
-              texto: estimado.direccion!,
+              texto: cliente.direccion!,
+            ),
+          if (cliente?.email != null && cliente!.email!.isNotEmpty)
+            _Linea(
+              icono: Icons.email_outlined,
+              texto: cliente.email!,
             ),
           const SizedBox(height: 14),
           Container(
@@ -161,8 +171,8 @@ class _EstimadoCard extends StatelessWidget {
                       ?.copyWith(color: AppColors.onPrimary),
                 ),
                 Text(
-                  estimado.montoAprobado != null
-                      ? estimado.montoAprobadoFormateado
+                  ordenTrabajo.montoAprobado != null
+                      ? ordenTrabajo.montoAprobadoFormateado
                       : 'Pendiente',
                   style: theme.textTheme.titleLarge
                       ?.copyWith(color: AppColors.onPrimary),

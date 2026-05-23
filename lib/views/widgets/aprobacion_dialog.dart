@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../models/estimado.dart';
+import '../../models/orden_trabajo.dart';
 import '../../models/pdf_cotizacion.dart';
-import '../../providers/estimados_provider.dart';
+import '../../providers/clientes_provider.dart';
+import '../../providers/ordenes_trabajo_provider.dart';
 import '../../theme/app_colors.dart';
 
 /// Diálogo de Cierre de Trato Remoto (Fase 5).
@@ -14,29 +15,29 @@ import '../../theme/app_colors.dart';
 /// `monto_aprobado`.
 Future<PdfCotizacion?> mostrarDialogoAprobacion(
   BuildContext context,
-  Estimado estimado,
+  OrdenTrabajo ordenTrabajo,
 ) {
   return showDialog<PdfCotizacion>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _AprobacionDialog(estimado: estimado),
+    builder: (_) => _AprobacionDialog(ordenTrabajo: ordenTrabajo),
   );
 }
 
 /// Ejecuta el Cierre de Trato Remoto completo: abre el diálogo de aprobación,
-/// inyecta el monto elegido en `monto_aprobado` y mueve el estimado a
+/// inyecta el monto elegido en `monto_aprobado` y mueve la orden a
 /// "Pendientes de Trabajo". Devuelve `true` si el trato se cerró.
 Future<bool> ejecutarCierreTrato(
   BuildContext context,
   WidgetRef ref,
-  Estimado estimado,
+  OrdenTrabajo ordenTrabajo,
 ) async {
   final messenger = ScaffoldMessenger.of(context);
-  final opcion = await mostrarDialogoAprobacion(context, estimado);
+  final opcion = await mostrarDialogoAprobacion(context, ordenTrabajo);
   if (opcion == null) return false;
 
-  await ref.read(estimadosControllerProvider).aprobarTrato(
-        estimado: estimado,
+  await ref.read(ordenesTrabajoControllerProvider).aprobarTrato(
+        ordenTrabajo: ordenTrabajo,
         opcionElegida: opcion,
       );
 
@@ -51,21 +52,24 @@ Future<bool> ejecutarCierreTrato(
   return true;
 }
 
-class _AprobacionDialog extends StatefulWidget {
-  const _AprobacionDialog({required this.estimado});
-  final Estimado estimado;
+class _AprobacionDialog extends ConsumerStatefulWidget {
+  const _AprobacionDialog({required this.ordenTrabajo});
+  final OrdenTrabajo ordenTrabajo;
 
   @override
-  State<_AprobacionDialog> createState() => _AprobacionDialogState();
+  ConsumerState<_AprobacionDialog> createState() => _AprobacionDialogState();
 }
 
-class _AprobacionDialogState extends State<_AprobacionDialog> {
+class _AprobacionDialogState extends ConsumerState<_AprobacionDialog> {
   int? _seleccion;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final opciones = widget.estimado.pdfsUrls;
+    final opciones = widget.ordenTrabajo.pdfsUrls;
+    final cliente =
+        ref.watch(clientesByIdProvider)[widget.ordenTrabajo.clienteId];
+    final nombreCliente = cliente?.nombre ?? 'Cliente desconocido';
 
     return AlertDialog(
       titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
@@ -102,7 +106,7 @@ class _AprobacionDialogState extends State<_AprobacionDialog> {
               ),
               const SizedBox(height: 4),
               Text(
-                widget.estimado.clienteNombre,
+                nombreCliente,
                 style: theme.textTheme.labelMedium,
               ),
               const SizedBox(height: 16),
@@ -194,7 +198,7 @@ class _OpcionCotizacion extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(cotizacion.titulo, style: theme.textTheme.titleMedium),
-                    Text('Cotización en PDF',
+                    Text('Estimado en PDF',
                         style: theme.textTheme.labelMedium),
                   ],
                 ),
@@ -230,8 +234,8 @@ class _SinCotizaciones extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Este estimado no tiene cotizaciones cargadas. '
-              'Agrega al menos una antes de cerrar el trato.',
+              'Este trabajo no tiene Estimados cargados. '
+              'Agrega al menos uno antes de cerrar el trato.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.onErrorContainer,
                   ),

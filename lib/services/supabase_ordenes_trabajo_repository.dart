@@ -1,24 +1,24 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/estimado.dart';
-import 'estimados_repository.dart';
+import '../models/orden_trabajo.dart';
+import 'ordenes_trabajo_repository.dart';
 
-/// Implementación de [EstimadosRepository] para el MODO SUPABASE.
+/// Implementación de [OrdenesTrabajoRepository] para el MODO SUPABASE.
 ///
 /// Usa Streams/WebSockets nativos de Supabase (`.stream()`) para sincronizar
 /// el tablero en tiempo real entre la tablet del asesor y la PC del admin.
-class SupabaseEstimadosRepository implements EstimadosRepository {
-  static const String _tabla = 'estimados';
+class SupabaseOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
+  static const String _tabla = 'ordenes_trabajo';
 
   SupabaseClient get _client => Supabase.instance.client;
 
   @override
-  Stream<List<Estimado>> watchEstimados() {
+  Stream<List<OrdenTrabajo>> watchOrdenesTrabajo() {
     return _client
         .from(_tabla)
         .stream(primaryKey: ['id'])
         .order('created_at')
-        .map((rows) => rows.map(Estimado.fromJson).toList());
+        .map((rows) => rows.map(OrdenTrabajo.fromJson).toList());
   }
 
   @override
@@ -29,7 +29,7 @@ class SupabaseEstimadosRepository implements EstimadosRepository {
   }
 
   @override
-  Future<void> aprobarEstimado({
+  Future<void> aprobarOrdenTrabajo({
     required String id,
     required double montoAprobado,
     required EstadoKanban nuevoEstado,
@@ -48,8 +48,8 @@ class SupabaseEstimadosRepository implements EstimadosRepository {
   }
 
   @override
-  Future<void> upsertEstimado(Estimado estimado) async {
-    await _client.from(_tabla).upsert(estimado.toJson());
+  Future<void> upsertOrdenTrabajo(OrdenTrabajo ordenTrabajo) async {
+    await _client.from(_tabla).upsert(ordenTrabajo.toJson());
   }
 
   @override

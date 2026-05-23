@@ -93,7 +93,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               style: theme.textTheme.headlineMedium),
                           const SizedBox(height: 4),
                           Text(
-                            'Accede para gestionar los estimados.',
+                            'Accede para gestionar las órdenes de trabajo.',
                             style: theme.textTheme.bodyMedium,
                           ),
                           const SizedBox(height: 24),

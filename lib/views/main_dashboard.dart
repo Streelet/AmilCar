@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_config.dart';
-import '../models/estimado.dart';
+import '../models/orden_trabajo.dart';
 import '../models/perfil.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_colors.dart';
 import 'archived_screen.dart';
-import 'tabs/lista_estimados_tab.dart';
+import 'tabs/lista_ordenes_tab.dart';
 import 'tabs/pendientes_estimado_tab.dart';
 import 'widgets/user_avatar_menu.dart';
 
@@ -93,7 +93,7 @@ class MainDashboard extends ConsumerWidget {
       ),
       const _TabDef(
         titulo: 'Pendientes de Trabajo',
-        contenido: ListaEstimadosTab(
+        contenido: ListaOrdenesTrabajoTab(
           estado: EstadoKanban.pendienteTrabajo,
           icono: Icons.build_outlined,
           mensajeVacio: 'Sin trabajos pendientes por iniciar.',
@@ -101,7 +101,7 @@ class MainDashboard extends ConsumerWidget {
       ),
       const _TabDef(
         titulo: 'En Proceso',
-        contenido: ListaEstimadosTab(
+        contenido: ListaOrdenesTrabajoTab(
           estado: EstadoKanban.enProceso,
           icono: Icons.handyman_outlined,
           mensajeVacio: 'No hay vehículos en reparación ahora mismo.',
@@ -113,7 +113,7 @@ class MainDashboard extends ConsumerWidget {
       tabs.add(
         const _TabDef(
           titulo: 'Pendiente de Pago',
-          contenido: ListaEstimadosTab(
+          contenido: ListaOrdenesTrabajoTab(
             estado: EstadoKanban.pendientePago,
             icono: Icons.payments_outlined,
             mensajeVacio: 'No hay cobros pendientes.',

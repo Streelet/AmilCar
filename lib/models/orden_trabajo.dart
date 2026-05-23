@@ -1,7 +1,8 @@
 import '../config/app_config.dart';
+import 'nota.dart';
 import 'pdf_cotizacion.dart';
 
-/// Estado de un [Estimado] dentro del flujo de negocio completo.
+/// Estado de una [OrdenTrabajo] dentro del flujo de negocio completo.
 ///
 /// Los 3 primeros valores son las **columnas del Kanban** de la pestaña
 /// "Pendientes de Estimado". Los demás corresponden a las otras pestañas
@@ -47,22 +48,32 @@ enum EstadoKanban {
   ];
 }
 
-/// Modelo relacional principal: una orden de servicio / estimado.
+/// Modelo relacional principal: una orden de trabajo del taller.
 ///
-/// Inmutable: las mutaciones (drag&drop, aprobación, archivado) se hacen con
-/// [copyWith] y se persisten vía el repositorio correspondiente.
-class Estimado {
-  const Estimado({
+/// La entidad atraviesa todas las fases del flujo (desde "Por Hacer" en el
+/// Kanban de "Pendientes de Estimado" hasta "Pendiente de Pago"). El nombre
+/// **OrdenTrabajo** refleja esta naturaleza transversal — la fase
+/// "Estimado" es solo el arranque, no la entidad misma.
+///
+/// La información de contacto del cliente vive en su propia entidad
+/// `Cliente`; aquí solo se guarda el FK [clienteId]. El **vehículo** y el
+/// resto del trabajo (fotos, PDFs de cotización, notas, monto aprobado)
+/// son por-orden y viven inline: un mismo cliente puede tener varias
+/// órdenes sobre distintos autos a lo largo del tiempo.
+///
+/// Inmutable: las mutaciones (drag&drop, aprobación, archivado) se hacen
+/// con [copyWith] y se persisten vía el repositorio correspondiente.
+class OrdenTrabajo {
+  const OrdenTrabajo({
     required this.id,
-    required this.clienteNombre,
-    this.telefono,
-    this.direccion,
+    required this.clienteId,
     this.vehiculoMarca,
     this.vehiculoModelo,
     this.vehiculoAnio,
     this.vehiculoVin,
     this.fotosUrls = const [],
     this.pdfsUrls = const [],
+    this.notas = const [],
     this.montoAprobado,
     this.estadoKanban = EstadoKanban.porHacer,
     this.archivado = false,
@@ -72,24 +83,23 @@ class Estimado {
   /// UUID.
   final String id;
 
-  /// Nombre del cliente (requerido).
-  final String clienteNombre;
-
-  final String? telefono;
-
-  /// Dirección / geolocalización del auxilio vial.
-  final String? direccion;
+  /// FK hacia `clientes.id`. La info de contacto (nombre, teléfono,
+  /// dirección, email) se resuelve vía `ClientesRepository`.
+  final String clienteId;
 
   final String? vehiculoMarca;
   final String? vehiculoModelo;
   final int? vehiculoAnio;
   final String? vehiculoVin;
 
-  /// Fotografías del vehículo.
+  /// Fotografías del vehículo / del trabajo.
   final List<String> fotosUrls;
 
   /// Cotizaciones agrupadas (título + url + monto sugerido).
   final List<PdfCotizacion> pdfsUrls;
+
+  /// Notas libres con detalles del trabajo.
+  final List<Nota> notas;
 
   /// Monto que el cliente aprobó. Nulo hasta el cierre del trato.
   final double? montoAprobado;
@@ -112,7 +122,13 @@ class Estimado {
     return partes.isEmpty ? 'Vehículo sin especificar' : partes.join(' ');
   }
 
-  /// Monto aprobado formateado, ej. "Q5,000". Vacío si aún no se aprueba.
+  /// `true` si hay al menos un dato del vehículo registrado.
+  bool get tieneVehiculo =>
+      (vehiculoMarca != null && vehiculoMarca!.isNotEmpty) ||
+      (vehiculoModelo != null && vehiculoModelo!.isNotEmpty) ||
+      vehiculoAnio != null;
+
+  /// Monto aprobado formateado, ej. "$5,000". Vacío si aún no se aprueba.
   String get montoAprobadoFormateado {
     if (montoAprobado == null) return '';
     final entero = montoAprobado!.round();
@@ -123,18 +139,17 @@ class Estimado {
     return '${AppConfig.currencySymbol}$texto';
   }
 
-  factory Estimado.fromJson(Map<String, dynamic> json) {
-    return Estimado(
+  factory OrdenTrabajo.fromJson(Map<String, dynamic> json) {
+    return OrdenTrabajo(
       id: json['id'] as String,
-      clienteNombre: (json['cliente_nombre'] ?? '') as String,
-      telefono: json['telefono'] as String?,
-      direccion: json['direccion'] as String?,
+      clienteId: json['cliente_id'] as String,
       vehiculoMarca: json['vehiculo_marca'] as String?,
       vehiculoModelo: json['vehiculo_modelo'] as String?,
       vehiculoAnio: (json['vehiculo_anio'] as num?)?.toInt(),
       vehiculoVin: json['vehiculo_vin'] as String?,
       fotosUrls: _stringList(json['fotos_urls']),
       pdfsUrls: _pdfList(json['pdfs_urls']),
+      notas: _notaList(json['notas']),
       montoAprobado: (json['monto_aprobado'] as num?)?.toDouble(),
       estadoKanban: EstadoKanban.fromDb(json['estado_kanban'] as String?),
       archivado: (json['archivado'] as bool?) ?? false,
@@ -146,47 +161,44 @@ class Estimado {
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'cliente_nombre': clienteNombre,
-        'telefono': telefono,
-        'direccion': direccion,
+        'cliente_id': clienteId,
         'vehiculo_marca': vehiculoMarca,
         'vehiculo_modelo': vehiculoModelo,
         'vehiculo_anio': vehiculoAnio,
         'vehiculo_vin': vehiculoVin,
         'fotos_urls': fotosUrls,
         'pdfs_urls': pdfsUrls.map((p) => p.toJson()).toList(),
+        'notas': notas.map((n) => n.toJson()).toList(),
         'monto_aprobado': montoAprobado,
         'estado_kanban': estadoKanban.dbValue,
         'archivado': archivado,
       };
 
-  Estimado copyWith({
+  OrdenTrabajo copyWith({
     String? id,
-    String? clienteNombre,
-    String? telefono,
-    String? direccion,
+    String? clienteId,
     String? vehiculoMarca,
     String? vehiculoModelo,
     int? vehiculoAnio,
     String? vehiculoVin,
     List<String>? fotosUrls,
     List<PdfCotizacion>? pdfsUrls,
+    List<Nota>? notas,
     double? montoAprobado,
     EstadoKanban? estadoKanban,
     bool? archivado,
     DateTime? createdAt,
   }) {
-    return Estimado(
+    return OrdenTrabajo(
       id: id ?? this.id,
-      clienteNombre: clienteNombre ?? this.clienteNombre,
-      telefono: telefono ?? this.telefono,
-      direccion: direccion ?? this.direccion,
+      clienteId: clienteId ?? this.clienteId,
       vehiculoMarca: vehiculoMarca ?? this.vehiculoMarca,
       vehiculoModelo: vehiculoModelo ?? this.vehiculoModelo,
       vehiculoAnio: vehiculoAnio ?? this.vehiculoAnio,
       vehiculoVin: vehiculoVin ?? this.vehiculoVin,
       fotosUrls: fotosUrls ?? this.fotosUrls,
       pdfsUrls: pdfsUrls ?? this.pdfsUrls,
+      notas: notas ?? this.notas,
       montoAprobado: montoAprobado ?? this.montoAprobado,
       estadoKanban: estadoKanban ?? this.estadoKanban,
       archivado: archivado ?? this.archivado,
@@ -204,6 +216,16 @@ class Estimado {
       return raw
           .whereType<Map>()
           .map((e) => PdfCotizacion.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+    return const [];
+  }
+
+  static List<Nota> _notaList(dynamic raw) {
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Nota.fromJson(Map<String, dynamic>.from(e)))
           .toList();
     }
     return const [];

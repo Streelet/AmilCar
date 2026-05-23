@@ -6,28 +6,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../config/app_config.dart';
-import '../../models/estimado.dart';
+import '../../models/cliente.dart';
+import '../../models/orden_trabajo.dart';
+import '../../models/nota.dart';
 import '../../models/pdf_cotizacion.dart';
 import '../../models/perfil.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/estimados_provider.dart';
+import '../../providers/clientes_provider.dart';
+import '../../providers/ordenes_trabajo_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import 'aprobacion_dialog.dart';
+import 'visor_imagenes.dart';
+import 'visor_pdf.dart';
 
-/// Abre el modal de detalle del estimado.
+/// Abre el modal de detalle de la orden de trabajo.
 ///
 /// El fondo (dashboard) queda difuminado (blur) mientras el modal está
 /// abierto. Toda la información — vehículo, fotos, cotizaciones, subida de
 /// PDFs y acciones — vive aquí.
-Future<void> mostrarDetalleEstimado(BuildContext context, String estimadoId) {
+Future<void> mostrarDetalleOrdenTrabajo(BuildContext context, String ordenTrabajoId) {
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: false,
     barrierColor: Colors.transparent,
-    barrierLabel: 'Detalle del estimado',
+    barrierLabel: 'Detalle de la orden de trabajo',
     transitionDuration: const Duration(milliseconds: 240),
-    pageBuilder: (_, __, ___) => _ModalDetalle(estimadoId: estimadoId),
+    pageBuilder: (_, __, ___) => _ModalDetalle(ordenTrabajoId: ordenTrabajoId),
     transitionBuilder: (context, anim, secondary, child) {
       return FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
@@ -39,8 +44,8 @@ Future<void> mostrarDetalleEstimado(BuildContext context, String estimadoId) {
 
 /// Capa de pantalla completa: fondo difuminado (toca para cerrar) + tarjeta.
 class _ModalDetalle extends StatelessWidget {
-  const _ModalDetalle({required this.estimadoId});
-  final String estimadoId;
+  const _ModalDetalle({required this.ordenTrabajoId});
+  final String ordenTrabajoId;
 
   @override
   Widget build(BuildContext context) {
@@ -58,15 +63,15 @@ class _ModalDetalle extends StatelessWidget {
             ),
           ),
         ),
-        Center(child: _TarjetaDetalle(estimadoId: estimadoId)),
+        Center(child: _TarjetaDetalle(ordenTrabajoId: ordenTrabajoId)),
       ],
     );
   }
 }
 
 class _TarjetaDetalle extends ConsumerStatefulWidget {
-  const _TarjetaDetalle({required this.estimadoId});
-  final String estimadoId;
+  const _TarjetaDetalle({required this.ordenTrabajoId});
+  final String ordenTrabajoId;
 
   @override
   ConsumerState<_TarjetaDetalle> createState() => _TarjetaDetalleState();
@@ -79,25 +84,35 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
 
   final TextEditingController _tituloCtrl = TextEditingController();
   final TextEditingController _montoCtrl = TextEditingController();
+  final TextEditingController _notaCtrl = TextEditingController();
 
   /// Bytes de las fotos elegidas en esta sesión, para mostrarlas de verdad.
   final Map<String, Uint8List> _fotosLocales = {};
+
+  /// Bytes de los PDF elegidos en esta sesión, para mostrarlos de verdad.
+  final Map<String, Uint8List> _pdfsLocales = {};
 
   @override
   void dispose() {
     _tituloCtrl.dispose();
     _montoCtrl.dispose();
+    _notaCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final estimados =
-        ref.watch(estimadosStreamProvider).valueOrNull ?? const <Estimado>[];
+    final ordenesTrabajo =
+        ref.watch(ordenesTrabajoStreamProvider).valueOrNull ??
+            const <OrdenTrabajo>[];
     final perfil = ref.watch(currentPerfilProvider);
-    final estimado = estimados
-        .cast<Estimado?>()
-        .firstWhere((e) => e!.id == widget.estimadoId, orElse: () => null);
+    final ordenTrabajo = ordenesTrabajo
+        .cast<OrdenTrabajo?>()
+        .firstWhere((o) => o!.id == widget.ordenTrabajoId,
+            orElse: () => null);
+    final cliente = ordenTrabajo != null
+        ? ref.watch(clientesByIdProvider)[ordenTrabajo.clienteId]
+        : null;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.94, end: 1),
@@ -109,16 +124,16 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
         padding: const EdgeInsets.all(20),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: 540,
-            maxHeight: MediaQuery.of(context).size.height * 0.88,
+            maxWidth: 860,
+            maxHeight: MediaQuery.of(context).size.height * 0.90,
           ),
           child: Material(
             color: AppColors.surfaceContainerLowest,
             borderRadius: BorderRadius.circular(AppRadii.xl),
             clipBehavior: Clip.antiAlias,
-            child: estimado == null
+            child: ordenTrabajo == null
                 ? _noDisponible()
-                : _tarjeta(estimado, perfil),
+                : _tarjeta(ordenTrabajo, cliente, perfil),
           ),
         ),
       ),
@@ -127,31 +142,23 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
 
   // ───────────────────────── Estructura ─────────────────────────
 
-  Widget _tarjeta(Estimado estimado, Perfil? perfil) {
-    final acciones = _footer(estimado, perfil);
+  Widget _tarjeta(OrdenTrabajo ordenTrabajo, Cliente? cliente, Perfil? perfil) {
+    final acciones = _footer(ordenTrabajo, cliente, perfil);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _header(estimado),
+        _header(ordenTrabajo),
         Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _seccionCliente(estimado),
-                const SizedBox(height: 18),
-                _seccionVehiculo(estimado),
-                const SizedBox(height: 18),
-                _seccionFotos(estimado),
-                const SizedBox(height: 18),
-                _seccionCotizaciones(estimado, perfil),
-                if (estimado.montoAprobado != null) ...[
-                  const SizedBox(height: 18),
-                  _bannerMonto(estimado),
-                ],
-              ],
-            ),
+          child: LayoutBuilder(
+            builder: (_, box) {
+              final wide = box.maxWidth > 580;
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: wide
+                    ? _cuerpoDosCol(ordenTrabajo, cliente, perfil)
+                    : _cuerpoUnaCol(ordenTrabajo, cliente, perfil),
+              );
+            },
           ),
         ),
         if (acciones != null) acciones,
@@ -159,7 +166,77 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
-  Widget _header(Estimado estimado) {
+  /// Layout de una columna (portrait / pantalla estrecha).
+  Widget _cuerpoUnaCol(OrdenTrabajo ordenTrabajo, Cliente? cliente, Perfil? perfil) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _seccionCliente(cliente),
+        const SizedBox(height: 18),
+        _seccionVehiculo(ordenTrabajo),
+        const SizedBox(height: 18),
+        _seccionNotas(ordenTrabajo),
+        const SizedBox(height: 18),
+        _seccionFotos(ordenTrabajo),
+        const SizedBox(height: 18),
+        _seccionCotizaciones(ordenTrabajo, perfil),
+        if (ordenTrabajo.montoAprobado != null) ...[
+          const SizedBox(height: 18),
+          _bannerMonto(ordenTrabajo),
+        ],
+      ],
+    );
+  }
+
+  /// Layout de dos columnas (landscape / modal ancho).
+  ///
+  /// Izquierda: datos del cliente, vehículo y notas.
+  /// Derecha: fotografías, cotizaciones (Estimados PDF) y monto aprobado.
+  Widget _cuerpoDosCol(OrdenTrabajo ordenTrabajo, Cliente? cliente, Perfil? perfil) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Columna izquierda ──────────────────────────────────────
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _seccionCliente(cliente),
+                const SizedBox(height: 18),
+                _seccionVehiculo(ordenTrabajo),
+                const SizedBox(height: 18),
+                _seccionNotas(ordenTrabajo),
+              ],
+            ),
+          ),
+          // ── Divisor vertical ──────────────────────────────────────
+          Container(
+            width: 1,
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+            color: AppColors.surfaceContainerHigh,
+          ),
+          // ── Columna derecha ───────────────────────────────────────
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _seccionFotos(ordenTrabajo),
+                const SizedBox(height: 18),
+                _seccionCotizaciones(ordenTrabajo, perfil),
+                if (ordenTrabajo.montoAprobado != null) ...[
+                  const SizedBox(height: 18),
+                  _bannerMonto(ordenTrabajo),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(OrdenTrabajo ordenTrabajo) {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
@@ -175,10 +252,10 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(estimado.vehiculoResumen,
+                Text(ordenTrabajo.vehiculoResumen,
                     style: theme.textTheme.headlineMedium),
                 const SizedBox(height: 6),
-                _ChipEstado(estado: estimado.estadoKanban),
+                _ChipEstado(estado: ordenTrabajo.estadoKanban),
               ],
             ),
           ),
@@ -194,22 +271,25 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
 
   // ───────────────────────── Secciones ─────────────────────────
 
-  Widget _seccionCliente(Estimado e) {
+  Widget _seccionCliente(Cliente? cliente) {
     return _seccion(
       'Cliente',
       Column(
         children: [
-          _filaDato(Icons.person_outline_rounded, 'Nombre', e.clienteNombre),
+          _filaDato(Icons.person_outline_rounded, 'Nombre',
+              cliente?.nombre ?? 'Cliente desconocido'),
           _filaDato(Icons.phone_outlined, 'Teléfono',
-              e.telefono ?? 'No registrado'),
-          _filaDato(Icons.location_on_outlined, 'Dirección / auxilio vial',
-              e.direccion ?? 'No registrada'),
+              cliente?.telefono ?? 'No registrado'),
+          _filaDato(Icons.location_on_outlined, 'Dirección',
+              cliente?.direccion ?? 'No registrada'),
+          _filaDato(Icons.email_outlined, 'Email',
+              cliente?.email ?? 'No registrado'),
         ],
       ),
     );
   }
 
-  Widget _seccionVehiculo(Estimado e) {
+  Widget _seccionVehiculo(OrdenTrabajo e) {
     return _seccion(
       'Vehículo',
       Column(
@@ -222,7 +302,10 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
-  Widget _seccionFotos(Estimado e) {
+  Widget _seccionFotos(OrdenTrabajo e) {
+    final fotos = [
+      for (final n in e.fotosUrls) FotoRef(nombre: n, bytes: _fotosLocales[n]),
+    ];
     return _seccion(
       'Fotografías (${e.fotosUrls.length})',
       SizedBox(
@@ -241,6 +324,11 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
             return _TileFoto(
               nombre: e.fotosUrls[i],
               bytes: _fotosLocales[e.fotosUrls[i]],
+              onTap: () => mostrarVisorImagenes(
+                context,
+                fotos: fotos,
+                indiceInicial: i,
+              ),
             );
           },
         ),
@@ -248,19 +336,19 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
-  Widget _seccionCotizaciones(Estimado e, Perfil? perfil) {
+  Widget _seccionCotizaciones(OrdenTrabajo e, Perfil? perfil) {
     final theme = Theme.of(context);
     final esAdmin = perfil?.rol.isAdmin ?? false;
 
     return _seccion(
-      'Cotizaciones en PDF (${e.pdfsUrls.length})',
+      'Estimados en PDF (${e.pdfsUrls.length})',
       Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (e.pdfsUrls.isEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
-              child: Text('Aún no hay cotizaciones cargadas.',
+              child: Text('Aún no hay Estimados cargados.',
                   style: theme.textTheme.bodyMedium),
             ),
           for (int i = 0; i < e.pdfsUrls.length; i++)
@@ -268,6 +356,14 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
               padding: const EdgeInsets.only(bottom: 8),
               child: _FilaCotizacion(
                 cotizacion: e.pdfsUrls[i],
+                onAbrir: () => mostrarVisorPdf(
+                  context,
+                  PdfRef(
+                    titulo: e.pdfsUrls[i].titulo,
+                    url: e.pdfsUrls[i].url,
+                    bytes: _pdfsLocales[e.pdfsUrls[i].url],
+                  ),
+                ),
                 onEliminar:
                     esAdmin && !_ocupado ? () => _quitarCotizacion(e, i) : null,
               ),
@@ -288,14 +384,61 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
               onPressed:
                   _ocupado ? null : () => setState(() => _formCotizAbierto = true),
               icon: const Icon(Icons.upload_file_rounded, size: 18),
-              label: const Text('Subir cotización PDF'),
+              label: const Text('Subir Estimado PDF'),
             ),
         ],
       ),
     );
   }
 
-  Widget _bannerMonto(Estimado e) {
+  Widget _seccionNotas(OrdenTrabajo e) {
+    final theme = Theme.of(context);
+    return _seccion(
+      'Notas (${e.notas.length})',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (e.notas.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                'Aún no hay notas. Agrega detalles del trabajo abajo.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+          for (int i = 0; i < e.notas.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _FilaNota(
+                nota: e.notas[i],
+                ocupado: _ocupado,
+                onEliminar: _ocupado ? null : () => _quitarNota(e, i),
+                onEditar: _ocupado ? null : (t) => _editarNota(e, i, t),
+              ),
+            ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _notaCtrl,
+            enabled: !_ocupado,
+            minLines: 2,
+            maxLines: 4,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'Escribe una nota sobre este trabajo…',
+            ),
+          ),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            onPressed: _ocupado ? null : () => _agregarNota(e),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Agregar nota'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bannerMonto(OrdenTrabajo e) {
     final theme = Theme.of(context);
     return Container(
       width: double.infinity,
@@ -321,7 +464,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
-  Widget? _footer(Estimado e, Perfil? perfil) {
+  Widget? _footer(OrdenTrabajo e, Cliente? cliente, Perfil? perfil) {
     final esAdmin = perfil?.rol.isAdmin ?? false;
     final esEsperando =
         e.estadoKanban == EstadoKanban.esperandoAprobacion;
@@ -334,7 +477,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
           child: OutlinedButton.icon(
             onPressed: _ocupado
                 ? null
-                : () => e.archivado ? _restaurar(e) : _archivar(e),
+                : () => e.archivado ? _restaurar(e) : _archivar(e, cliente),
             icon: Icon(
               e.archivado
                   ? Icons.unarchive_outlined
@@ -452,15 +595,21 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       final res = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
+        withData: true,
       );
       if (!mounted || res == null || res.files.isEmpty) return;
-      setState(() => _pdfNombre = res.files.first.name);
+      final archivo = res.files.first;
+      // Se guardan los bytes para poder mostrar el PDF de verdad en el visor.
+      if (archivo.bytes != null) {
+        _pdfsLocales[archivo.name] = archivo.bytes!;
+      }
+      setState(() => _pdfNombre = archivo.name);
     } catch (_) {
       _aviso('No se pudo abrir el selector de archivos.');
     }
   }
 
-  Future<void> _pickFoto(Estimado e) async {
+  Future<void> _pickFoto(OrdenTrabajo e) async {
     try {
       final res = await FilePicker.platform.pickFiles(
         type: FileType.image,
@@ -472,7 +621,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
         _fotosLocales[archivo.name] = archivo.bytes!;
       }
       setState(() => _ocupado = true);
-      await ref.read(estimadosControllerProvider).agregarFoto(e, archivo.name);
+      await ref.read(ordenesTrabajoControllerProvider).agregarFoto(e, archivo.name);
       if (mounted) setState(() => _ocupado = false);
     } catch (_) {
       if (mounted) setState(() => _ocupado = false);
@@ -480,13 +629,13 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     }
   }
 
-  Future<void> _agregarCotizacion(Estimado e) async {
+  Future<void> _agregarCotizacion(OrdenTrabajo e) async {
     final titulo = _tituloCtrl.text.trim();
     final monto = double.tryParse(
         _montoCtrl.text.replaceAll(',', '').replaceAll(' ', '').trim());
 
     if (titulo.isEmpty) {
-      _aviso('Escribe un título para la cotización (ej. OEM).');
+      _aviso('Escribe un título para el Estimado (ej. OEM).');
       return;
     }
     if (monto == null || monto <= 0) {
@@ -500,38 +649,70 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       url: _pdfNombre ?? 'cotizacion_${DateTime.now().millisecondsSinceEpoch}.pdf',
       montoSugerido: monto,
     );
-    await ref.read(estimadosControllerProvider).agregarCotizacion(e, cotizacion);
+    await ref.read(ordenesTrabajoControllerProvider).agregarCotizacion(e, cotizacion);
     if (!mounted) return;
     setState(() => _ocupado = false);
     _cerrarForm();
-    _aviso('Cotización "$titulo" agregada.');
+    _aviso('Estimado "$titulo" agregado.');
   }
 
-  Future<void> _quitarCotizacion(Estimado e, int indice) async {
+  Future<void> _quitarCotizacion(OrdenTrabajo e, int indice) async {
     setState(() => _ocupado = true);
-    await ref.read(estimadosControllerProvider).quitarCotizacion(e, indice);
+    await ref.read(ordenesTrabajoControllerProvider).quitarCotizacion(e, indice);
     if (mounted) setState(() => _ocupado = false);
   }
 
-  Future<void> _archivar(Estimado e) async {
+  Future<void> _agregarNota(OrdenTrabajo e) async {
+    final texto = _notaCtrl.text.trim();
+    if (texto.isEmpty) {
+      _aviso('Escribe el contenido de la nota.');
+      return;
+    }
+    setState(() => _ocupado = true);
+    await ref.read(ordenesTrabajoControllerProvider).agregarNota(
+          e,
+          Nota(texto: texto, fecha: DateTime.now()),
+        );
+    if (!mounted) return;
+    _notaCtrl.clear();
+    setState(() => _ocupado = false);
+  }
+
+  Future<void> _quitarNota(OrdenTrabajo e, int indice) async {
+    setState(() => _ocupado = true);
+    await ref.read(ordenesTrabajoControllerProvider).quitarNota(e, indice);
+    if (mounted) setState(() => _ocupado = false);
+  }
+
+  Future<void> _editarNota(OrdenTrabajo e, int indice, String nuevoTexto) async {
+    if (nuevoTexto.trim().isEmpty) return;
+    setState(() => _ocupado = true);
+    await ref
+        .read(ordenesTrabajoControllerProvider)
+        .editarNota(e, indice, nuevoTexto.trim());
+    if (mounted) setState(() => _ocupado = false);
+  }
+
+  Future<void> _archivar(OrdenTrabajo e, Cliente? cliente) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final nombre = cliente?.nombre ?? 'el cliente';
     setState(() => _ocupado = true);
-    await ref.read(estimadosControllerProvider).archivar(e);
+    await ref.read(ordenesTrabajoControllerProvider).archivar(e);
     navigator.maybePop();
     messenger.showSnackBar(
-      SnackBar(content: Text('Orden de ${e.clienteNombre} archivada.')),
+      SnackBar(content: Text('Orden de $nombre archivada.')),
     );
   }
 
-  Future<void> _restaurar(Estimado e) async {
+  Future<void> _restaurar(OrdenTrabajo e) async {
     setState(() => _ocupado = true);
-    await ref.read(estimadosControllerProvider).restaurar(e);
+    await ref.read(ordenesTrabajoControllerProvider).restaurar(e);
     if (mounted) setState(() => _ocupado = false);
     _aviso('Orden restaurada al tablero.');
   }
 
-  Future<void> _cerrarTrato(Estimado e) async {
+  Future<void> _cerrarTrato(OrdenTrabajo e) async {
     final navigator = Navigator.of(context);
     final cerrado = await ejecutarCierreTrato(context, ref, e);
     if (cerrado) navigator.maybePop();
@@ -585,21 +766,45 @@ class _ChipEstado extends StatelessWidget {
 }
 
 class _TileFoto extends StatelessWidget {
-  const _TileFoto({required this.nombre, this.bytes});
+  const _TileFoto({required this.nombre, this.bytes, this.onTap});
   final String nombre;
   final Uint8List? bytes;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 84,
-      height: 88,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppRadii.md),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: Container(
+        width: 84,
+        height: 88,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _imagen(),
+            // Indicador de que la foto se puede ampliar.
+            Positioned(
+              right: 4,
+              bottom: 4,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.zoom_in_rounded,
+                    size: 13, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
-      child: _imagen(),
     );
   }
 
@@ -609,11 +814,8 @@ class _TileFoto extends StatelessWidget {
       return Image.memory(bytes!, fit: BoxFit.cover, width: 84, height: 88);
     }
     // URL real, o nombre de archivo usado como semilla de una fotografía.
-    final url = nombre.startsWith('http')
-        ? nombre
-        : 'https://picsum.photos/seed/${Uri.encodeComponent(nombre)}/240/240';
     return Image.network(
-      url,
+      resolverUrlFoto(nombre, tamano: 240),
       fit: BoxFit.cover,
       width: 84,
       height: 88,
@@ -673,55 +875,251 @@ class _TileAgregar extends StatelessWidget {
 }
 
 class _FilaCotizacion extends StatelessWidget {
-  const _FilaCotizacion({required this.cotizacion, this.onEliminar});
+  const _FilaCotizacion({
+    required this.cotizacion,
+    this.onAbrir,
+    this.onEliminar,
+  });
   final PdfCotizacion cotizacion;
+
+  /// Abre el PDF en el visor integrado.
+  final VoidCallback? onAbrir;
   final VoidCallback? onEliminar;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-      decoration: BoxDecoration(
-        color: AppColors.primaryFixed,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.picture_as_pdf_outlined,
-              size: 18, color: AppColors.onPrimaryContainer),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(cotizacion.titulo,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: AppColors.onPrimaryContainer,
-                      fontWeight: FontWeight.w600,
-                    )),
-                Text(cotizacion.url,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: AppColors.onPrimaryContainer)),
-              ],
-            ),
+    return Material(
+      color: AppColors.primaryFixed,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onAbrir,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 9, 6, 9),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(Icons.picture_as_pdf_rounded,
+                    size: 18, color: AppColors.onPrimary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(cotizacion.titulo,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: AppColors.onPrimaryContainer,
+                          fontWeight: FontWeight.w600,
+                        )),
+                    Text(cotizacion.url,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: AppColors.onPrimaryContainer)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(cotizacion.montoFormateado,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(color: AppColors.onPrimaryContainer)),
+              if (onEliminar != null)
+                IconButton(
+                  tooltip: 'Quitar',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.close_rounded,
+                      size: 18, color: AppColors.onPrimaryContainer),
+                  onPressed: onEliminar,
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.chevron_right_rounded,
+                      size: 20, color: AppColors.onPrimaryContainer),
+                ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text(cotizacion.montoFormateado,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(color: AppColors.onPrimaryContainer)),
-          if (onEliminar != null)
-            IconButton(
-              tooltip: 'Quitar',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.close_rounded,
-                  size: 18, color: AppColors.onPrimaryContainer),
-              onPressed: onEliminar,
-            ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _FilaNota extends StatefulWidget {
+  const _FilaNota({
+    required this.nota,
+    required this.ocupado,
+    this.onEliminar,
+    this.onEditar,
+  });
+
+  final Nota nota;
+  final bool ocupado;
+  final VoidCallback? onEliminar;
+
+  /// Llamado con el nuevo texto cuando el usuario guarda la edición.
+  final void Function(String nuevoTexto)? onEditar;
+
+  @override
+  State<_FilaNota> createState() => _FilaNotaState();
+}
+
+class _FilaNotaState extends State<_FilaNota> {
+  bool _editando = false;
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.nota.texto);
+  }
+
+  @override
+  void didUpdateWidget(_FilaNota oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sincroniza si la nota fue actualizada externamente mientras no editamos.
+    if (!_editando && oldWidget.nota.texto != widget.nota.texto) {
+      _ctrl.text = widget.nota.texto;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: EdgeInsets.fromLTRB(12, _editando ? 12 : 10, 6, _editando ? 12 : 10),
+      decoration: BoxDecoration(
+        color: _editando
+            ? AppColors.primaryFixed
+            : AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(
+          color: _editando ? AppColors.primary : AppColors.outlineVariant,
+          width: _editando ? 1.5 : 1,
+        ),
+      ),
+      child: _editando ? _modoEdicion() : _modoVista(),
+    );
+  }
+
+  Widget _modoVista() {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 2),
+          child: Icon(Icons.sticky_note_2_outlined,
+              size: 16, color: AppColors.onSurfaceVariant),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.nota.texto, style: theme.textTheme.bodyLarge),
+              const SizedBox(height: 4),
+              Text(widget.nota.fechaFormateada,
+                  style: theme.textTheme.labelSmall),
+            ],
+          ),
+        ),
+        // Botón editar
+        if (widget.onEditar != null)
+          IconButton(
+            tooltip: 'Editar nota',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.edit_outlined,
+                size: 17, color: AppColors.onSurfaceVariant),
+            onPressed: widget.ocupado
+                ? null
+                : () {
+                    _ctrl.text = widget.nota.texto;
+                    setState(() => _editando = true);
+                  },
+          ),
+        // Botón eliminar
+        if (widget.onEliminar != null)
+          IconButton(
+            tooltip: 'Eliminar nota',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded,
+                size: 18, color: AppColors.onSurfaceVariant),
+            onPressed: widget.onEliminar,
+          ),
+      ],
+    );
+  }
+
+  Widget _modoEdicion() {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.edit_note_rounded,
+                size: 16, color: AppColors.primary),
+            const SizedBox(width: 6),
+            Text(
+              'Editando nota',
+              style: theme.textTheme.labelMedium
+                  ?.copyWith(color: AppColors.primary),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _ctrl,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 6,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'Escribe el contenido de la nota…',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () => setState(() => _editando = false),
+                child: const Text('Cancelar'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  final texto = _ctrl.text.trim();
+                  if (texto.isNotEmpty) {
+                    widget.onEditar?.call(texto);
+                    setState(() => _editando = false);
+                  }
+                },
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: const Text('Guardar'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -758,7 +1156,7 @@ class _FormCotizacion extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Nueva cotización', style: theme.textTheme.titleMedium),
+          Text('Nuevo Estimado', style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
           TextField(
             controller: tituloCtrl,

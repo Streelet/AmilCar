@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../models/estimado.dart';
+import '../../models/orden_trabajo.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 

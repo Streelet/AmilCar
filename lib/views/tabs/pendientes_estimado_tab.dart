@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../models/estimado.dart';
-import '../../providers/estimados_provider.dart';
+import '../../models/orden_trabajo.dart';
+import '../../providers/clientes_provider.dart';
+import '../../providers/ordenes_trabajo_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import '../widgets/aprobacion_dialog.dart';
@@ -23,30 +24,30 @@ class PendientesEstimadoTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final estimadosAsync = ref.watch(estimadosStreamProvider);
+    final ordenesAsync = ref.watch(ordenesTrabajoStreamProvider);
 
-    return estimadosAsync.when(
+    return ordenesAsync.when(
       loading: () => const Center(
         child: CircularProgressIndicator(color: AppColors.primary),
       ),
       // Resiliencia offline: si el stream falla, no se colapsa la app.
       error: (err, _) => _EstadoError(
-        onReintentar: () => ref.invalidate(estimadosStreamProvider),
+        onReintentar: () => ref.invalidate(ordenesTrabajoStreamProvider),
       ),
       data: (todos) {
         final delTablero = todos
-            .where((e) => !e.archivado && e.estadoKanban.esColumnaEstimado)
+            .where((o) => !o.archivado && o.estadoKanban.esColumnaEstimado)
             .toList();
-        return _Tablero(estimados: delTablero);
+        return _Tablero(ordenesTrabajo: delTablero);
       },
     );
   }
 }
 
 class _Tablero extends StatelessWidget {
-  const _Tablero({required this.estimados});
+  const _Tablero({required this.ordenesTrabajo});
 
-  final List<Estimado> estimados;
+  final List<OrdenTrabajo> ordenesTrabajo;
 
   @override
   Widget build(BuildContext context) {
@@ -72,8 +73,8 @@ class _Tablero extends StatelessWidget {
                 for (final estado in columnas)
                   _KanbanColumn(
                     estado: estado,
-                    items: estimados
-                        .where((e) => e.estadoKanban == estado)
+                    items: ordenesTrabajo
+                        .where((o) => o.estadoKanban == estado)
                         .toList(),
                   ),
               ];
@@ -125,22 +126,25 @@ class _KanbanColumn extends ConsumerWidget {
   const _KanbanColumn({required this.estado, required this.items});
 
   final EstadoKanban estado;
-  final List<Estimado> items;
+  final List<OrdenTrabajo> items;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final estilo = estiloDeEstado(estado);
 
-    return DragTarget<Estimado>(
+    return DragTarget<OrdenTrabajo>(
       onWillAcceptWithDetails: (details) =>
           details.data.estadoKanban != estado,
       onAcceptWithDetails: (details) async {
-        final estimado = details.data;
+        final ordenTrabajo = details.data;
         // Modal de confirmación para CADA movimiento del Kanban.
-        final confirmado = await _confirmarMovimiento(context, estimado, estado);
+        final confirmado =
+            await _confirmarMovimiento(context, ref, ordenTrabajo, estado);
         if (confirmado) {
-          await ref.read(estimadosControllerProvider).moverA(estimado, estado);
+          await ref
+              .read(ordenesTrabajoControllerProvider)
+              .moverA(ordenTrabajo, estado);
         }
       },
       builder: (context, candidatos, _) {
@@ -218,7 +222,7 @@ class _KanbanColumn extends ConsumerWidget {
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: 11),
                         itemBuilder: (context, i) =>
-                            _TarjetaArrastrable(estimado: items[i]),
+                            _TarjetaArrastrable(ordenTrabajo: items[i]),
                       ),
               ),
             ],
@@ -232,9 +236,13 @@ class _KanbanColumn extends ConsumerWidget {
 /// Diálogo de confirmación que se muestra antes de mover una tarjeta.
 Future<bool> _confirmarMovimiento(
   BuildContext context,
-  Estimado estimado,
+  WidgetRef ref,
+  OrdenTrabajo ordenTrabajo,
   EstadoKanban destino,
 ) async {
+  final cliente = ref.read(clientesByIdProvider)[ordenTrabajo.clienteId];
+  final nombreCliente = cliente?.nombre ?? 'Cliente desconocido';
+
   final resultado = await showDialog<bool>(
     context: context,
     builder: (ctx) {
@@ -245,12 +253,13 @@ Future<bool> _confirmarMovimiento(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Orden de ${estimado.clienteNombre}',
+            Text('Orden de $nombreCliente',
                 style: theme.textTheme.bodyLarge),
             const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(child: _ChipColumna(estado: estimado.estadoKanban)),
+                Expanded(
+                    child: _ChipColumna(estado: ordenTrabajo.estadoKanban)),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
                   child: Icon(Icons.arrow_forward_rounded,
@@ -313,30 +322,83 @@ class _ChipColumna extends StatelessWidget {
   }
 }
 
-/// Envuelve una [KanbanCard] en un [Draggable] para el Drag & Drop.
-/// Se usa [Draggable] (no LongPressDraggable) para que la tarjeta se arrastre
-/// con un clic-y-mover directo, sin tener que mantener presionado.
+/// Envuelve una [KanbanCard] en un [LongPressDraggable] para el Drag & Drop.
+///
+/// Hay que mantener presionada la tarjeta un instante antes de poder moverla:
+/// así un toque simple abre el detalle y no se arrastra por accidente al
+/// desplazarse por la columna. Al activarse, la tarjeta flotante tiembla
+/// levemente para señalar que ya está "levantada" y lista para mover.
 class _TarjetaArrastrable extends StatelessWidget {
-  const _TarjetaArrastrable({required this.estimado});
+  const _TarjetaArrastrable({required this.ordenTrabajo});
 
-  final Estimado estimado;
+  final OrdenTrabajo ordenTrabajo;
 
   @override
   Widget build(BuildContext context) {
-    final card = KanbanCard(estimado: estimado);
+    final card = KanbanCard(ordenTrabajo: ordenTrabajo);
 
-    return Draggable<Estimado>(
-      data: estimado,
+    return LongPressDraggable<OrdenTrabajo>(
+      data: ordenTrabajo,
+      delay: const Duration(milliseconds: 300),
       dragAnchorStrategy: childDragAnchorStrategy,
       feedback: Material(
         color: Colors.transparent,
-        child: SizedBox(
-          width: _anchoFeedback,
-          child: KanbanCard(estimado: estimado, arrastrando: true),
+        child: _CartaTemblorosa(
+          child: SizedBox(
+            width: _anchoFeedback,
+            child: KanbanCard(
+                ordenTrabajo: ordenTrabajo, arrastrando: true),
+          ),
         ),
       ),
       childWhenDragging: Opacity(opacity: 0.35, child: card),
       child: card,
+    );
+  }
+}
+
+/// Aplica un temblor sutil y continuo a su hijo. Se usa en la tarjeta
+/// flotante mientras se arrastra, para comunicar de un vistazo que la
+/// tarjeta está activa y se puede mover.
+class _CartaTemblorosa extends StatefulWidget {
+  const _CartaTemblorosa({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_CartaTemblorosa> createState() => _CartaTemblorosaState();
+}
+
+class _CartaTemblorosaState extends State<_CartaTemblorosa>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controlador;
+  late final Animation<double> _angulo;
+
+  @override
+  void initState() {
+    super.initState();
+    _controlador = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    )..repeat(reverse: true);
+    _angulo = Tween<double>(begin: -0.025, end: 0.025).animate(
+      CurvedAnimation(parent: _controlador, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controlador.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _angulo,
+      builder: (context, child) =>
+          Transform.rotate(angle: _angulo.value, child: child),
+      child: widget.child,
     );
   }
 }
@@ -386,7 +448,7 @@ class _ZonaCierreTrato extends ConsumerWidget {
         AppSpacing.marginMobile,
         8,
       ),
-      child: DragTarget<Estimado>(
+      child: DragTarget<OrdenTrabajo>(
         onWillAcceptWithDetails: (details) =>
             details.data.estadoKanban == EstadoKanban.esperandoAprobacion,
         onAcceptWithDetails: (details) {
