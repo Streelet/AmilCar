@@ -19,7 +19,9 @@
       "Bash(gh issue *)",
       "Read(//c/Users/erick/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-11.0.2/**)",
       "Read(//c/Users/erick/AppData/Local/Pub/Cache/hosted/pub.dev/file_picker-11.0.2/android/src/**)",
-      "Bash(git mv *)"
+      "Bash(git mv *)",
+      "Bash(curl -s -o /dev/null -w \"Server: %{http_code}\\\\n\" http://127.0.0.1:49317/)",
+      "Bash(awk '{print \"Bundle: \" $5 \" bytes, modificado \" $6 \" \" $7 \" \" $8}')"
     ]
   }
 }

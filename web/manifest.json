@@ -1,12 +1,12 @@
 {
-    "name": "amilcar",
-    "short_name": "amilcar",
+    "name": "AmilCar Auto Service",
+    "short_name": "AmilCar",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#FAF9FE",
+    "theme_color": "#33373D",
+    "description": "ERP / Kanban para AmilCar Auto Service. Gestión de órdenes de trabajo, clientes, cotizaciones y cobros.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

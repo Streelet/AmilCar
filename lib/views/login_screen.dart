@@ -197,20 +197,13 @@ class _Encabezado extends StatelessWidget {
     final theme = Theme.of(context);
     return Column(
       children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: const BoxDecoration(
-            color: AppColors.primary,
-            shape: BoxShape.circle,
-            boxShadow: AppShadows.floating,
-          ),
-          alignment: Alignment.center,
-          child: const Icon(Icons.car_repair_rounded,
-              color: AppColors.onPrimary, size: 34),
+        // El logo ya incluye la marca "AMILCAR" y "AUTO SERVICE LLC.",
+        // así que no hace falta repetir el texto del nombre debajo.
+        Image.asset(
+          'assets/branding/logo.png',
+          width: 240,
+          fit: BoxFit.contain,
         ),
-        const SizedBox(height: 16),
-        Text(AppConfig.appName, style: theme.textTheme.headlineLarge),
         const SizedBox(height: 4),
         Text(
           'ERP · Mecánica Express Móvil e Internacional',

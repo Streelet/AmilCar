@@ -20,7 +20,7 @@ class AppConfig {
   const AppConfig._();
 
   /// Interruptor maestro. El MVP viene en modo Mockup por defecto.
-  static const bool useMockData = true;
+  static const bool useMockData = false;
 
   /// Nombre comercial mostrado en la interfaz.
   static const String appName = 'AmilCar';

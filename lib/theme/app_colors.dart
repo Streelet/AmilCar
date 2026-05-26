@@ -28,13 +28,16 @@ class AppColors {
   static const Color outline = Color(0xFF8D716B);
   static const Color outlineVariant = Color(0xFFE1BFB9);
 
-  // --- Primary (Coral) ---
-  static const Color surfaceTint = Color(0xFFAE311E);
-  static const Color primary = Color(0xFFAE311E);
+  // --- Primary (Grafito azulado · #33373D) ---
+  // Neutro con personalidad: casi negro con tinte frío sutil. Profesional
+  // y diferenciable del rojo de `error`, del ámbar de "Esperando
+  // Aprobación" y del resto de la familia tonal de etapas.
+  static const Color surfaceTint = Color(0xFF33373D);
+  static const Color primary = Color(0xFF33373D);
   static const Color onPrimary = Color(0xFFFFFFFF);
-  static const Color primaryContainer = Color(0xFFFF6B52);
-  static const Color onPrimaryContainer = Color(0xFF6A0700);
-  static const Color inversePrimary = Color(0xFFFFB4A6);
+  static const Color primaryContainer = Color(0xFFD7DCE3);
+  static const Color onPrimaryContainer = Color(0xFF1B1F25);
+  static const Color inversePrimary = Color(0xFFB0B5BB);
 
   // --- Secondary (Ink) ---
   static const Color secondary = Color(0xFF5F5E5E);
@@ -54,11 +57,11 @@ class AppColors {
   static const Color errorContainer = Color(0xFFFFDAD6);
   static const Color onErrorContainer = Color(0xFF93000A);
 
-  // --- Fixed accents ---
-  static const Color primaryFixed = Color(0xFFFFDAD4);
-  static const Color primaryFixedDim = Color(0xFFFFB4A6);
-  static const Color onPrimaryFixed = Color(0xFF3F0300);
-  static const Color onPrimaryFixedVariant = Color(0xFF8C1808);
+  // --- Fixed accents (chips / píldoras / fondos suaves del primary) ---
+  static const Color primaryFixed = Color(0xFFE2E6EA);
+  static const Color primaryFixedDim = Color(0xFFB0B5BB);
+  static const Color onPrimaryFixed = Color(0xFF0F1217);
+  static const Color onPrimaryFixedVariant = Color(0xFF43464D);
 }
 
 /// Radios de esquina del DESIGN.md (sección Shapes / rounded).

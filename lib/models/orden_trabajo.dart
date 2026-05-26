@@ -78,6 +78,7 @@ class OrdenTrabajo {
     this.estadoKanban = EstadoKanban.porHacer,
     this.archivado = false,
     this.createdAt,
+    this.deletedAt,
   });
 
   /// UUID.
@@ -112,6 +113,11 @@ class OrdenTrabajo {
 
   final DateTime? createdAt;
 
+  /// Marca de soft delete. `null` = activo. Cuando tiene valor, la orden
+  /// queda oculta de todas las queries (RLS lo filtra en Supabase; el
+  /// repo mock lo filtra en memoria).
+  final DateTime? deletedAt;
+
   /// Descripción corta del vehículo para la tarjeta, ej. "Toyota Hilux 2021".
   String get vehiculoResumen {
     final partes = [
@@ -127,6 +133,30 @@ class OrdenTrabajo {
       (vehiculoMarca != null && vehiculoMarca!.isNotEmpty) ||
       (vehiculoModelo != null && vehiculoModelo!.isNotEmpty) ||
       vehiculoAnio != null;
+
+  /// Tiempo relativo desde la creación, ej. "hoy", "ayer", "hace 3 d",
+  /// "hace 2 sem", "hace 4 meses". Cadena vacía si no hay [createdAt].
+  ///
+  /// Pensado para mostrarse en la tarjeta del Kanban sin ocupar espacio —
+  /// es una pista de antigüedad / urgencia de un vistazo.
+  String get fechaRelativa {
+    final f = createdAt;
+    if (f == null) return '';
+    final diff = DateTime.now().difference(f);
+    if (diff.inDays == 0) return 'hoy';
+    if (diff.inDays == 1) return 'ayer';
+    if (diff.inDays < 7) return 'hace ${diff.inDays} d';
+    if (diff.inDays < 30) {
+      final semanas = (diff.inDays / 7).floor();
+      return 'hace $semanas sem';
+    }
+    if (diff.inDays < 365) {
+      final meses = (diff.inDays / 30).floor();
+      return 'hace $meses mes${meses == 1 ? '' : 'es'}';
+    }
+    final anios = (diff.inDays / 365).floor();
+    return 'hace $anios año${anios == 1 ? '' : 's'}';
+  }
 
   /// Monto aprobado formateado, ej. "$5,000". Vacío si aún no se aprueba.
   String get montoAprobadoFormateado {
@@ -156,9 +186,14 @@ class OrdenTrabajo {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
           : null,
+      deletedAt: json['deleted_at'] != null
+          ? DateTime.tryParse(json['deleted_at'].toString())
+          : null,
     );
   }
 
+  /// Nota: `deleted_at` NO se incluye en toJson. El soft delete se aplica
+  /// vía una operación dedicada del repositorio.
   Map<String, dynamic> toJson() => {
         'id': id,
         'cliente_id': clienteId,
@@ -188,6 +223,7 @@ class OrdenTrabajo {
     EstadoKanban? estadoKanban,
     bool? archivado,
     DateTime? createdAt,
+    DateTime? deletedAt,
   }) {
     return OrdenTrabajo(
       id: id ?? this.id,
@@ -203,6 +239,7 @@ class OrdenTrabajo {
       estadoKanban: estadoKanban ?? this.estadoKanban,
       archivado: archivado ?? this.archivado,
       createdAt: createdAt ?? this.createdAt,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 

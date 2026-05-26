@@ -31,11 +31,13 @@ dependencies:
 
   # --- Visor de PDF integrado (cotizaciones) ---
   pdfrx: ^2.2.24
+  uuid: ^4.5.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -45,3 +47,19 @@ flutter:
     - .env
     # PDF de ejemplo para los Estimados de demostración (modo Mockup).
     - assets/sample/estimado_demo.pdf
+    # Branding: logo y assets de marca usados en AppBar, Login y Splash.
+    - assets/branding/
+
+# Configuración del ícono del launcher Android (paquete flutter_launcher_icons).
+# Generá los íconos corriendo:  dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "assets/branding/logo.png"
+  min_sdk_android: 21
+  # Ícono adaptivo (Android 8+): fondo crema de la app + el logo como
+  # foreground. El logo tiene transparencia y respeta su propio padding
+  # interno, así que entra cómodo dentro de la máscara circular/squircle
+  # que aplican los launchers.
+  adaptive_icon_background: "#FAF9FE"
+  adaptive_icon_foreground: "assets/branding/logo.png"

@@ -11,6 +11,7 @@ class Cliente {
     this.direccion,
     this.email,
     this.createdAt,
+    this.deletedAt,
   });
 
   /// UUID. En Supabase coincide con `clientes.id`.
@@ -24,6 +25,11 @@ class Cliente {
   final String? email;
 
   final DateTime? createdAt;
+
+  /// Marca de soft delete. `null` = activo. Cuando tiene valor, el cliente
+  /// queda oculto de todas las queries (RLS lo filtra en Supabase; los
+  /// repos lo filtran en mock).
+  final DateTime? deletedAt;
 
   /// Iniciales de respaldo cuando no haya foto de cliente (avatar fallback).
   String get iniciales {
@@ -43,9 +49,16 @@ class Cliente {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
           : null,
+      deletedAt: json['deleted_at'] != null
+          ? DateTime.tryParse(json['deleted_at'].toString())
+          : null,
     );
   }
 
+  /// Nota: `deleted_at` NO se incluye en toJson. El soft delete se aplica
+  /// vía una operación dedicada del repositorio que sólo actualiza esa
+  /// columna; un upsert con la fila completa no debe re-activar/desactivar
+  /// el cliente por accidente.
   Map<String, dynamic> toJson() => {
         'id': id,
         'nombre': nombre,
@@ -61,6 +74,7 @@ class Cliente {
     String? direccion,
     String? email,
     DateTime? createdAt,
+    DateTime? deletedAt,
   }) {
     return Cliente(
       id: id ?? this.id,
@@ -69,6 +83,7 @@ class Cliente {
       direccion: direccion ?? this.direccion,
       email: email ?? this.email,
       createdAt: createdAt ?? this.createdAt,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 }

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../config/app_config.dart';
 import '../models/orden_trabajo.dart';
 import '../models/perfil.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/estado_style.dart';
 import 'archived_screen.dart';
+import 'clientes_screen.dart';
+import 'nueva_orden_screen.dart';
 import 'tabs/lista_ordenes_tab.dart';
 import 'tabs/pendientes_estimado_tab.dart';
 import 'widgets/user_avatar_menu.dart';
@@ -45,6 +47,16 @@ class MainDashboard extends ConsumerWidget {
           titleSpacing: AppSpacing.marginMobile,
           title: const _TituloAppBar(),
           actions: [
+            // Directorio de clientes.
+            IconButton(
+              tooltip: 'Clientes',
+              icon: const Icon(Icons.people_alt_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ClientesScreen(),
+                ),
+              ),
+            ),
             // Acceso rápido a las órdenes archivadas.
             IconButton(
               tooltip: 'Órdenes archivadas',
@@ -79,6 +91,12 @@ class MainDashboard extends ConsumerWidget {
         body: TabBarView(
           children: [for (final t in tabs) t.contenido],
         ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => abrirNuevaOrdenTrabajo(context),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Nueva orden'),
+          tooltip: 'Crear orden de trabajo',
+        ),
       ),
     );
   }
@@ -93,18 +111,39 @@ class MainDashboard extends ConsumerWidget {
       ),
       const _TabDef(
         titulo: 'Pendientes de Trabajo',
-        contenido: ListaOrdenesTrabajoTab(
+        contenido: _ConTemaDeEstado(
           estado: EstadoKanban.pendienteTrabajo,
-          icono: Icons.build_outlined,
-          mensajeVacio: 'Sin trabajos pendientes por iniciar.',
+          child: ListaOrdenesTrabajoTab(
+            estado: EstadoKanban.pendienteTrabajo,
+            icono: Icons.build_outlined,
+            mensajeVacio: 'Sin trabajos pendientes por iniciar.',
+            comoTabla: true,
+            accionRapida: AccionRapidaOrden(
+              icono: Icons.play_arrow_rounded,
+              label: 'Iniciar trabajo (Pasar a En Proceso)',
+              labelCorta: 'Iniciar',
+              destino: EstadoKanban.enProceso,
+            ),
+          ),
         ),
       ),
       const _TabDef(
         titulo: 'En Proceso',
-        contenido: ListaOrdenesTrabajoTab(
+        contenido: _ConTemaDeEstado(
           estado: EstadoKanban.enProceso,
-          icono: Icons.handyman_outlined,
-          mensajeVacio: 'No hay vehículos en reparación ahora mismo.',
+          child: ListaOrdenesTrabajoTab(
+            estado: EstadoKanban.enProceso,
+            icono: Icons.handyman_outlined,
+            mensajeVacio: 'No hay vehículos en reparación ahora mismo.',
+            comoTabla: true,
+            accionRapida: AccionRapidaOrden(
+              icono: Icons.payments_outlined,
+              label: 'Mover a Por Cobrar',
+              labelCorta: 'A Por Cobrar',
+              destino: EstadoKanban.pendientePago,
+              estilo: EstiloAccionRapida.moverAPendientePagoConMonto,
+            ),
+          ),
         ),
       ),
     ];
@@ -113,10 +152,22 @@ class MainDashboard extends ConsumerWidget {
       tabs.add(
         const _TabDef(
           titulo: 'Pendiente de Pago',
-          contenido: ListaOrdenesTrabajoTab(
+          contenido: _ConTemaDeEstado(
             estado: EstadoKanban.pendientePago,
-            icono: Icons.payments_outlined,
-            mensajeVacio: 'No hay cobros pendientes.',
+            child: ListaOrdenesTrabajoTab(
+              estado: EstadoKanban.pendientePago,
+              icono: Icons.payments_outlined,
+              mensajeVacio: 'No hay cobros pendientes.',
+              comoTabla: true,
+              vistaCobros: true,
+              accionRapida: AccionRapidaOrden(
+                icono: Icons.add_card_rounded,
+                label: 'Registrar pago',
+                labelCorta: 'Registrar pago',
+                destino: EstadoKanban.pendientePago,
+                estilo: EstiloAccionRapida.registrarPago,
+              ),
+            ),
           ),
         ),
       );
@@ -131,23 +182,31 @@ class _TituloAppBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: const BoxDecoration(
-            color: AppColors.primary,
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: const Icon(Icons.car_repair_rounded,
-              color: AppColors.onPrimary, size: 18),
-        ),
-        const SizedBox(width: 10),
-        Text(AppConfig.appName, style: Theme.of(context).textTheme.titleLarge),
-      ],
+    // El logo de AmilCar ya contiene "AMILCAR" como texto, así que en el
+    // AppBar va solo el logo (sin un Text adicional al lado, sería
+    // redundante). Altura limitada a 40 para que entre cómodo en la
+    // barra superior.
+    return Image.asset(
+      'assets/branding/logo.png',
+      height: 40,
+      fit: BoxFit.contain,
+    );
+  }
+}
+
+/// Envuelve un widget con un [Theme] override cuyo color primario es el
+/// acento de la [EstadoStyle] correspondiente. Le da identidad cromática
+/// distintiva a cada pestaña sin tener que pintar widget por widget.
+class _ConTemaDeEstado extends StatelessWidget {
+  const _ConTemaDeEstado({required this.estado, required this.child});
+  final EstadoKanban estado;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: temaParaEstado(context, estado),
+      child: child,
     );
   }
 }

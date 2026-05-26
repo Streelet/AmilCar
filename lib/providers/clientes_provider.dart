@@ -32,6 +32,12 @@ class ClientesController {
 
   /// Alta o edición de un cliente.
   Future<void> upsertCliente(Cliente cliente) => _repo.upsertCliente(cliente);
+
+  /// Soft delete: el cliente desaparece de las queries (RLS lo oculta en
+  /// Supabase, el repo lo filtra en mock). Las órdenes que lo referencian
+  /// seguirán existiendo pero mostrarán "Cliente desconocido" — el
+  /// llamador debe avisar al usuario antes de invocar este método.
+  Future<void> eliminarCliente(String id) => _repo.softDeleteCliente(id);
 }
 
 /// Provider del controlador de acciones de clientes.

@@ -7,16 +7,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../config/app_config.dart';
 import '../../models/cliente.dart';
-import '../../models/orden_trabajo.dart';
 import '../../models/nota.dart';
+import '../../models/orden_trabajo.dart';
+import '../../models/pago.dart';
 import '../../models/pdf_cotizacion.dart';
 import '../../models/perfil.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/clientes_provider.dart';
 import '../../providers/ordenes_trabajo_provider.dart';
+import '../../providers/pagos_provider.dart';
+import '../../providers/repository_providers.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import 'aprobacion_dialog.dart';
+import 'cliente_picker.dart';
+import 'pago_form_dialog.dart';
+import 'vehiculo_form_dialog.dart';
 import 'visor_imagenes.dart';
 import 'visor_pdf.dart';
 
@@ -114,26 +120,36 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
         ? ref.watch(clientesByIdProvider)[ordenTrabajo.clienteId]
         : null;
 
+    // Tema derivado: el modal toma el color de acento del estado actual
+    // de la orden, así el usuario siente la etapa de un vistazo (botones,
+    // banners, focos de input toman ese color).
+    final tema = ordenTrabajo == null
+        ? Theme.of(context)
+        : temaParaEstado(context, ordenTrabajo.estadoKanban);
+
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.94, end: 1),
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutBack,
       builder: (context, escala, child) =>
           Transform.scale(scale: escala, child: child),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 860,
-            maxHeight: MediaQuery.of(context).size.height * 0.90,
-          ),
-          child: Material(
-            color: AppColors.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(AppRadii.xl),
-            clipBehavior: Clip.antiAlias,
-            child: ordenTrabajo == null
-                ? _noDisponible()
-                : _tarjeta(ordenTrabajo, cliente, perfil),
+      child: Theme(
+        data: tema,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 860,
+              maxHeight: MediaQuery.of(context).size.height * 0.90,
+            ),
+            child: Material(
+              color: AppColors.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(AppRadii.xl),
+              clipBehavior: Clip.antiAlias,
+              child: ordenTrabajo == null
+                  ? _noDisponible()
+                  : _tarjeta(ordenTrabajo, cliente, perfil),
+            ),
           ),
         ),
       ),
@@ -147,7 +163,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _header(ordenTrabajo),
+        _header(ordenTrabajo, perfil),
         Flexible(
           child: LayoutBuilder(
             builder: (_, box) {
@@ -171,7 +187,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _seccionCliente(cliente),
+        _seccionCliente(ordenTrabajo, cliente),
         const SizedBox(height: 18),
         _seccionVehiculo(ordenTrabajo),
         const SizedBox(height: 18),
@@ -184,6 +200,8 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
           const SizedBox(height: 18),
           _bannerMonto(ordenTrabajo),
         ],
+        const SizedBox(height: 18),
+        _seccionPagos(ordenTrabajo),
       ],
     );
   }
@@ -202,7 +220,7 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _seccionCliente(cliente),
+                _seccionCliente(ordenTrabajo, cliente),
                 const SizedBox(height: 18),
                 _seccionVehiculo(ordenTrabajo),
                 const SizedBox(height: 18),
@@ -228,6 +246,8 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
                   const SizedBox(height: 18),
                   _bannerMonto(ordenTrabajo),
                 ],
+                const SizedBox(height: 18),
+                _seccionPagos(ordenTrabajo),
               ],
             ),
           ),
@@ -236,10 +256,11 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
-  Widget _header(OrdenTrabajo ordenTrabajo) {
+  Widget _header(OrdenTrabajo ordenTrabajo, Perfil? perfil) {
     final theme = Theme.of(context);
+    final esAdmin = perfil?.rol.isAdmin ?? false;
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+      padding: const EdgeInsets.fromLTRB(20, 18, 4, 16),
       decoration: const BoxDecoration(
         border: Border(
           bottom: BorderSide(color: AppColors.surfaceContainerHigh),
@@ -259,6 +280,32 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
               ],
             ),
           ),
+          // Menú de acciones destructivas (solo admin). Apartado del flujo
+          // principal — archivar/cerrar trato siguen siendo botones en el
+          // footer; aquí solo Eliminar para no tentar al borrado accidental.
+          if (esAdmin)
+            PopupMenuButton<String>(
+              tooltip: 'Más acciones',
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (value) {
+                if (value == 'eliminar') _eliminarOrden(ordenTrabajo);
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem<String>(
+                  value: 'eliminar',
+                  enabled: !_ocupado,
+                  child: Row(
+                    children: const [
+                      Icon(Icons.delete_outline_rounded,
+                          size: 18, color: AppColors.error),
+                      SizedBox(width: 10),
+                      Text('Eliminar orden',
+                          style: TextStyle(color: AppColors.error)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           IconButton(
             tooltip: 'Cerrar',
             icon: const Icon(Icons.close_rounded),
@@ -269,9 +316,62 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
+  Future<void> _eliminarOrden(OrdenTrabajo orden) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final cliente = ref.read(clientesByIdProvider)[orden.clienteId];
+    final nombre = cliente?.nombre ?? 'el cliente';
+    final pagosDeOrden =
+        ref.read(pagosByOrdenIdProvider)[orden.id] ?? const <Pago>[];
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar orden'),
+        content: Text(
+          '¿Eliminar la orden de $nombre? Esta acción oculta la orden de '
+          'todas las vistas (incluido el tablero de archivadas). '
+          '${pagosDeOrden.isEmpty ? '' : 'Tiene ${pagosDeOrden.length} pago${pagosDeOrden.length == 1 ? '' : 's'} registrado${pagosDeOrden.length == 1 ? '' : 's'} que también quedará${pagosDeOrden.length == 1 ? '' : 'n'} oculto${pagosDeOrden.length == 1 ? '' : 's'}. '}'
+          'Recuperable por SQL.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.onError,
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+
+    setState(() => _ocupado = true);
+    try {
+      await ref
+          .read(ordenesTrabajoControllerProvider)
+          .eliminarOrdenTrabajo(orden);
+      navigator.maybePop();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Orden de $nombre eliminada.')),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _ocupado = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar la orden: $e')),
+      );
+    }
+  }
+
   // ───────────────────────── Secciones ─────────────────────────
 
-  Widget _seccionCliente(Cliente? cliente) {
+  Widget _seccionCliente(OrdenTrabajo orden, Cliente? cliente) {
     return _seccion(
       'Cliente',
       Column(
@@ -286,6 +386,15 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
               cliente?.email ?? 'No registrado'),
         ],
       ),
+      trailing: TextButton.icon(
+        onPressed: _ocupado ? null : () => _cambiarCliente(orden),
+        icon: const Icon(Icons.swap_horiz_rounded, size: 16),
+        label: const Text('Cambiar'),
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+      ),
     );
   }
 
@@ -299,7 +408,22 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
               e.vehiculoVin ?? 'No registrado'),
         ],
       ),
+      trailing: TextButton.icon(
+        onPressed: _ocupado ? null : () => _editarVehiculo(e),
+        icon: const Icon(Icons.edit_outlined, size: 16),
+        label: const Text('Editar'),
+        style: TextButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+      ),
     );
+  }
+
+  Future<void> _editarVehiculo(OrdenTrabajo orden) async {
+    setState(() => _ocupado = true);
+    await mostrarFormularioVehiculo(context, orden);
+    if (mounted) setState(() => _ocupado = false);
   }
 
   Widget _seccionFotos(OrdenTrabajo e) {
@@ -464,6 +588,159 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     );
   }
 
+  Widget _seccionPagos(OrdenTrabajo orden) {
+    final theme = Theme.of(context);
+    final pagos =
+        ref.watch(pagosByOrdenIdProvider)[orden.id] ?? const <Pago>[];
+    // Los cancelados NO suman al saldo (siguen visibles, pero tachados).
+    final totalCobrado = pagos
+        .where((p) => !p.estaCancelado)
+        .fold<double>(0, (acc, p) => acc + p.monto);
+    final aprobado = orden.montoAprobado;
+    final restante = aprobado == null ? null : aprobado - totalCobrado;
+    final pagadoCompleto =
+        aprobado != null && restante != null && restante <= 0;
+
+    return _seccion(
+      'Pagos (${pagos.length})',
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Resumen
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: pagadoCompleto
+                  ? const Color(0xFFD4ECE8)
+                  : AppColors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(
+                color: pagadoCompleto
+                    ? const Color(0xFF1C8175)
+                    : AppColors.outlineVariant,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  pagadoCompleto
+                      ? Icons.check_circle_rounded
+                      : Icons.account_balance_wallet_outlined,
+                  color: pagadoCompleto
+                      ? const Color(0xFF1C8175)
+                      : AppColors.onSurfaceVariant,
+                  size: 22,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pagadoCompleto
+                            ? 'Pagado completo'
+                            : aprobado == null
+                                ? 'Cobrado: ${_fmt(totalCobrado)}'
+                                : 'Cobrado ${_fmt(totalCobrado)} '
+                                    'de ${_fmt(aprobado)}',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: pagadoCompleto
+                              ? const Color(0xFF1C8175)
+                              : AppColors.onSurface,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (aprobado != null && !pagadoCompleto)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Restante: ${_fmt(restante!.clamp(0, double.infinity).toDouble())}',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Listado de pagos
+          if (pagos.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                'Aún no se registraron pagos para esta orden.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            )
+          else
+            for (final p in pagos)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _FilaPago(
+                  pago: p,
+                  ocupado: _ocupado,
+                  onEditar: () => _editarPago(orden, p),
+                  onEliminar: () => _eliminarPago(p),
+                ),
+              ),
+          const SizedBox(height: 6),
+          OutlinedButton.icon(
+            onPressed:
+                _ocupado ? null : () => _registrarPago(orden, restante),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Registrar pago'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(46),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Formato breve de monto reusable dentro del modal.
+  String _fmt(double monto) {
+    final entero = monto.round();
+    final texto = entero.toString().replaceAllMapped(
+          RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+          (m) => '${m[1]},',
+        );
+    return '${AppConfig.currencySymbol}$texto';
+  }
+
+  Future<void> _registrarPago(OrdenTrabajo orden, double? restante) async {
+    final restanteValor = restante ?? 0;
+    await mostrarFormularioPago(
+      context,
+      orden: orden,
+      restante: restanteValor < 0 ? 0 : restanteValor,
+    );
+  }
+
+  Future<void> _editarPago(OrdenTrabajo orden, Pago pago) async {
+    await mostrarFormularioPago(
+      context,
+      orden: orden,
+      restante: 0, // no aplica en edición; el monto viene del pago
+      pagoAEditar: pago,
+    );
+  }
+
+  Future<void> _eliminarPago(Pago pago) async {
+    if (pago.estaCancelado) return; // ya cancelado, no se vuelve a tocar
+    final motivo = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ConfirmarCancelarPagoDialog(pago: pago),
+    );
+    if (motivo == null) return; // canceló el diálogo
+    setState(() => _ocupado = true);
+    await ref.read(pagosControllerProvider).cancelarPago(pago, motivo);
+    if (mounted) setState(() => _ocupado = false);
+  }
+
   Widget? _footer(OrdenTrabajo e, Cliente? cliente, Perfil? perfil) {
     final esAdmin = perfil?.rol.isAdmin ?? false;
     final esEsperando =
@@ -541,14 +818,23 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
 
   // ───────────────────────── Helpers de UI ─────────────────────────
 
-  Widget _seccion(String titulo, Widget hijo) {
+  Widget _seccion(String titulo, Widget hijo, {Widget? trailing}) {
     final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(titulo.toUpperCase(),
-            style: theme.textTheme.labelMedium
-                ?.copyWith(color: AppColors.primary)),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                titulo.toUpperCase(),
+                style: theme.textTheme.labelMedium
+                    ?.copyWith(color: theme.colorScheme.primary),
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
         const SizedBox(height: 10),
         hijo,
       ],
@@ -617,15 +903,34 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       );
       if (!mounted || res == null || res.files.isEmpty) return;
       final archivo = res.files.first;
-      if (archivo.bytes != null) {
-        _fotosLocales[archivo.name] = archivo.bytes!;
+      if (archivo.bytes == null) {
+        _aviso('No se pudieron leer los bytes del archivo.');
+        return;
       }
       setState(() => _ocupado = true);
-      await ref.read(ordenesTrabajoControllerProvider).agregarFoto(e, archivo.name);
+      // Cachear bytes localmente: el visor full-screen los puede consumir
+      // mientras la red termina de subir, dándole al usuario respuesta
+      // visual inmediata.
+      _fotosLocales[archivo.name] = archivo.bytes!;
+      // Subida a Storage. En mock devuelve el filename; en Supabase
+      // devuelve la URL pública del bucket.
+      final url = await ref
+          .read(storageRepositoryProvider)
+          .subirFoto(
+            bytes: archivo.bytes!,
+            nombreArchivo: archivo.name,
+            ordenId: e.id,
+          );
+      await ref
+          .read(ordenesTrabajoControllerProvider)
+          .agregarFoto(e, url);
+      // Reasocia los bytes locales a la URL nueva, así el visor de la
+      // sesión los muestra al instante (sin esperar la descarga).
+      _fotosLocales[url] = archivo.bytes!;
       if (mounted) setState(() => _ocupado = false);
-    } catch (_) {
+    } catch (err) {
       if (mounted) setState(() => _ocupado = false);
-      _aviso('No se pudo adjuntar la foto.');
+      _aviso('No se pudo subir la foto: $err');
     }
   }
 
@@ -644,16 +949,44 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
     }
 
     setState(() => _ocupado = true);
-    final cotizacion = PdfCotizacion(
-      titulo: titulo,
-      url: _pdfNombre ?? 'cotizacion_${DateTime.now().millisecondsSinceEpoch}.pdf',
-      montoSugerido: monto,
-    );
-    await ref.read(ordenesTrabajoControllerProvider).agregarCotizacion(e, cotizacion);
-    if (!mounted) return;
-    setState(() => _ocupado = false);
-    _cerrarForm();
-    _aviso('Estimado "$titulo" agregado.');
+    try {
+      // Si el usuario seleccionó un PDF, lo subimos AHORA (no en
+      // `_pickPdf`) — así si después cancela el formulario, no quedan
+      // archivos huérfanos en Storage. La URL resultante (mock = filename,
+      // Supabase = url pública del bucket) es la que persiste en la BD.
+      String urlPdf;
+      if (_pdfNombre != null && _pdfsLocales[_pdfNombre!] != null) {
+        urlPdf = await ref.read(storageRepositoryProvider).subirPdf(
+              bytes: _pdfsLocales[_pdfNombre!]!,
+              nombreArchivo: _pdfNombre!,
+              ordenId: e.id,
+            );
+        // Reasocia bytes a la URL nueva para que el visor PDF integrado
+        // los muestre al instante en la misma sesión sin descarga extra.
+        _pdfsLocales[urlPdf] = _pdfsLocales[_pdfNombre!]!;
+      } else {
+        // Sin PDF adjunto: usamos un placeholder. El visor caerá al
+        // sample PDF demo (rama final del `visor_pdf.dart`).
+        urlPdf =
+            'cotizacion_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      }
+
+      final cotizacion = PdfCotizacion(
+        titulo: titulo,
+        url: urlPdf,
+        montoSugerido: monto,
+      );
+      await ref
+          .read(ordenesTrabajoControllerProvider)
+          .agregarCotizacion(e, cotizacion);
+      if (!mounted) return;
+      setState(() => _ocupado = false);
+      _cerrarForm();
+      _aviso('Estimado "$titulo" agregado.');
+    } catch (err) {
+      if (mounted) setState(() => _ocupado = false);
+      _aviso('No se pudo guardar el Estimado: $err');
+    }
   }
 
   Future<void> _quitarCotizacion(OrdenTrabajo e, int indice) async {
@@ -691,6 +1024,49 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
         .read(ordenesTrabajoControllerProvider)
         .editarNota(e, indice, nuevoTexto.trim());
     if (mounted) setState(() => _ocupado = false);
+  }
+
+  /// Abre el selector para reasignar la orden a otro cliente del directorio.
+  /// Pide confirmación antes de aplicar el cambio.
+  Future<void> _cambiarCliente(OrdenTrabajo orden) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final nuevoCliente = await mostrarSelectorCliente(context);
+    if (nuevoCliente == null) return;
+    if (nuevoCliente.id == orden.clienteId) {
+      _aviso('Ese cliente ya estaba asignado a esta orden.');
+      return;
+    }
+    if (!mounted) return;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reasignar orden'),
+        content: Text(
+          '¿Cambiar el cliente de esta orden a "${nuevoCliente.nombre}"? '
+          'Esta acción reescribe la información de contacto que se mostrará.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reasignar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+
+    setState(() => _ocupado = true);
+    await ref
+        .read(ordenesTrabajoControllerProvider)
+        .cambiarCliente(orden, nuevoCliente.id);
+    if (mounted) setState(() => _ocupado = false);
+    messenger.showSnackBar(
+      SnackBar(content: Text('Orden reasignada a ${nuevoCliente.nombre}.')),
+    );
   }
 
   Future<void> _archivar(OrdenTrabajo e, Cliente? cliente) async {
@@ -1223,6 +1599,326 @@ class _FormCotizacion extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Fila de un pago registrado. Si está cancelado, se renderiza tachado
+/// y con un badge "CANCELADO" + motivo, sin botones de editar/cancelar.
+class _FilaPago extends StatelessWidget {
+  const _FilaPago({
+    required this.pago,
+    required this.ocupado,
+    required this.onEditar,
+    required this.onEliminar,
+  });
+
+  final Pago pago;
+  final bool ocupado;
+  final VoidCallback onEditar;
+  final VoidCallback onEliminar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cancelado = pago.estaCancelado;
+    final nota = pago.notas.isEmpty ? null : pago.notas.first.texto;
+
+    final colorTexto = cancelado
+        ? AppColors.onSurfaceVariant
+        : theme.colorScheme.primary;
+    final colorTextoSec =
+        cancelado ? AppColors.onSurfaceVariant : AppColors.onSurface;
+    final tachado = cancelado ? TextDecoration.lineThrough : null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      decoration: BoxDecoration(
+        color: cancelado
+            ? AppColors.surfaceContainer
+            : AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(
+          color: cancelado
+              ? AppColors.outlineVariant
+              : AppColors.outlineVariant,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              cancelado
+                  ? Icons.cancel_outlined
+                  : Icons.payments_outlined,
+              size: 18,
+              color: cancelado ? AppColors.error : colorTexto,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        pago.montoFormateado,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: colorTexto,
+                          fontWeight: FontWeight.w700,
+                          decoration: tachado,
+                          decorationColor: AppColors.error,
+                          decorationThickness: 2,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      pago.fechaFormateada,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: colorTextoSec,
+                        decoration: tachado,
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      // Chip "CANCELADO" en rojo
+                      if (cancelado)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.errorContainer,
+                            borderRadius:
+                                BorderRadius.circular(AppRadii.full),
+                          ),
+                          child: Text(
+                            'CANCELADO',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: AppColors.onErrorContainer,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      // Chip de método de pago
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: cancelado
+                              ? AppColors.surfaceContainerLow
+                              : theme.colorScheme.primaryContainer,
+                          borderRadius:
+                              BorderRadius.circular(AppRadii.full),
+                        ),
+                        child: Text(
+                          pago.metodoPagoLabel,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cancelado
+                                ? AppColors.onSurfaceVariant
+                                : theme.colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w600,
+                            decoration: tachado,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (nota != null && nota.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      nota,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorTextoSec,
+                        decoration: tachado,
+                      ),
+                    ),
+                  ),
+                // Motivo de cancelación (solo si está cancelado)
+                if (cancelado &&
+                    (pago.motivoCancelacion?.trim().isNotEmpty ?? false))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorContainer
+                            .withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded,
+                              size: 14, color: AppColors.error),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Motivo: ${pago.motivoCancelacion!.trim()}',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: AppColors.onSurface,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Acciones solo cuando NO está cancelado
+          if (!cancelado) ...[
+            IconButton(
+              tooltip: 'Editar pago',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.edit_outlined,
+                  size: 17, color: AppColors.onSurfaceVariant),
+              onPressed: ocupado ? null : onEditar,
+            ),
+            IconButton(
+              tooltip: 'Cancelar pago',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close_rounded,
+                  size: 18, color: AppColors.onSurfaceVariant),
+              onPressed: ocupado ? null : onEliminar,
+            ),
+          ] else
+            const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+}
+
+/// Diálogo de cancelación de pago. Devuelve el motivo (String) si el
+/// usuario confirma, o `null` si vuelve atrás.
+///
+/// Doble fricción anti-accidente: (1) hay que escribir un motivo no
+/// vacío; (2) hay que tipear la palabra "cancelar". Solo entonces se
+/// habilita el botón rojo.
+class _ConfirmarCancelarPagoDialog extends StatefulWidget {
+  const _ConfirmarCancelarPagoDialog({required this.pago});
+  final Pago pago;
+
+  @override
+  State<_ConfirmarCancelarPagoDialog> createState() =>
+      _ConfirmarCancelarPagoDialogState();
+}
+
+class _ConfirmarCancelarPagoDialogState
+    extends State<_ConfirmarCancelarPagoDialog> {
+  final _motivo = TextEditingController();
+  final _confirmacion = TextEditingController();
+  static const String _palabra = 'cancelar';
+
+  @override
+  void dispose() {
+    _motivo.dispose();
+    _confirmacion.dispose();
+    super.dispose();
+  }
+
+  bool get _motivoOk => _motivo.text.trim().isNotEmpty;
+  bool get _confirmacionOk =>
+      _confirmacion.text.trim().toLowerCase() == _palabra;
+  bool get _puedeConfirmar => _motivoOk && _confirmacionOk;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final pago = widget.pago;
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded,
+              color: AppColors.error, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('Cancelar pago',
+                style: theme.textTheme.headlineMedium),
+          ),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'El pago de ${pago.montoFormateado} (${pago.metodoPagoLabel}) '
+                'del ${pago.fechaFormateada} dejará de contar para el saldo. '
+                'Sigue visible en el historial, pero tachado. La orden '
+                'recupera "Restante" si estaba pagada completa.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _motivo,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                minLines: 2,
+                maxLines: 4,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Motivo de cancelación *',
+                  hintText: 'Ej. Cliente desistió, transferencia rebotó…',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Para confirmar, escribí "$_palabra" abajo:',
+                style: theme.textTheme.labelMedium,
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _confirmacion,
+                autocorrect: false,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: _palabra,
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Atrás'),
+        ),
+        ElevatedButton(
+          onPressed: _puedeConfirmar
+              ? () => Navigator.of(context).pop(_motivo.text.trim())
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.error,
+            foregroundColor: AppColors.onError,
+            disabledBackgroundColor:
+                AppColors.error.withValues(alpha: 0.35),
+            disabledForegroundColor: AppColors.onError,
+          ),
+          child: const Text('Cancelar pago'),
+        ),
+      ],
     );
   }
 }

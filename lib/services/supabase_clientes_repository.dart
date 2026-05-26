@@ -19,12 +19,26 @@ class SupabaseClientesRepository implements ClientesRepository {
         .from(_tabla)
         .stream(primaryKey: ['id'])
         .order('nombre')
-        .map((rows) => rows.map(Cliente.fromJson).toList());
+        .map((rows) => rows
+            .map(Cliente.fromJson)
+            // Filtro defensivo: las políticas RLS ya excluyen los soft
+            // deleted, pero el canal realtime puede re-emitir un UPDATE
+            // de una fila recién borrada sin sacarla del cache local.
+            .where((c) => c.deletedAt == null)
+            .toList());
   }
 
   @override
   Future<void> upsertCliente(Cliente cliente) async {
     await _client.from(_tabla).upsert(cliente.toJson());
+  }
+
+  @override
+  Future<void> softDeleteCliente(String id) async {
+    await _client
+        .from(_tabla)
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', id);
   }
 
   @override

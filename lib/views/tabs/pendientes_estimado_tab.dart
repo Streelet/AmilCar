@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/orden_trabajo.dart';
 import '../../providers/clientes_provider.dart';
+import '../../providers/filtros_provider.dart';
 import '../../providers/ordenes_trabajo_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import '../widgets/aprobacion_dialog.dart';
+import '../widgets/barra_filtros.dart';
 import '../widgets/kanban_card.dart';
 
 /// Ancho mínimo de cada columna antes de pasar a scroll horizontal.
@@ -35,9 +37,27 @@ class PendientesEstimadoTab extends ConsumerWidget {
         onReintentar: () => ref.invalidate(ordenesTrabajoStreamProvider),
       ),
       data: (todos) {
-        final delTablero = todos
-            .where((o) => !o.archivado && o.estadoKanban.esColumnaEstimado)
-            .toList();
+        final filtroCliente = ref.watch(filtroClienteIdProvider);
+        final filtroRango = ref.watch(filtroRangoFechasProvider);
+
+        final delTablero = todos.where((o) {
+          if (o.archivado) return false;
+          if (!o.estadoKanban.esColumnaEstimado) return false;
+          if (filtroCliente != null && o.clienteId != filtroCliente) {
+            return false;
+          }
+          if (filtroRango != null) {
+            final f = o.createdAt;
+            if (f == null) return false;
+            // El rango es inclusivo. Se compara contra el día completo
+            // (de medianoche a 23:59:59) sin tener que normalizar la hora.
+            final desde = filtroRango.start;
+            final hasta = filtroRango.end.add(const Duration(days: 1));
+            if (f.isBefore(desde) || !f.isBefore(hasta)) return false;
+          }
+          return true;
+        }).toList();
+
         return _Tablero(ordenesTrabajo: delTablero);
       },
     );
@@ -61,6 +81,8 @@ class _Tablero extends StatelessWidget {
         // Zona para cerrar el trato arrastrando una tarjeta fuera de
         // "Esperando Aprobación".
         const _ZonaCierreTrato(),
+        // Barra compacta de filtros (cliente + rango de fechas).
+        const BarraFiltros(),
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -539,3 +561,6 @@ class _EstadoError extends StatelessWidget {
     );
   }
 }
+
+// _BarraFiltros y _PillFiltro se movieron a lib/views/widgets/barra_filtros.dart
+// para compartirlos con las tablas (Pendientes de Trabajo, En Proceso, Por Cobrar).

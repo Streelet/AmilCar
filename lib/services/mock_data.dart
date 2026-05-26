@@ -1,6 +1,8 @@
 import '../models/cliente.dart';
-import '../models/orden_trabajo.dart';
+import '../models/metodo_pago.dart';
 import '../models/nota.dart';
+import '../models/orden_trabajo.dart';
+import '../models/pago.dart';
 import '../models/pdf_cotizacion.dart';
 import '../models/perfil.dart';
 
@@ -409,6 +411,68 @@ class MockData {
         montoAprobado: 1850,
         estadoKanban: EstadoKanban.pendientePago,
         createdAt: hace(7),
+      ),
+    ];
+  }
+
+  /// Pagos / anticipos ficticios. Cubren tres casos para ver el "Restante"
+  /// funcionando:
+  ///   - e9 (Diego Fuentes, monto aprobado $6,700): un anticipo de $3,000
+  ///     → restante $3,700.
+  ///   - e11 (María González, monto aprobado $1,850): pagado completo en
+  ///     un solo pago → restante $0 (badge "Pagado completo").
+  static List<Pago> seedPagos() {
+    final ahora = DateTime.now();
+    DateTime hace(int dias) => ahora.subtract(Duration(days: dias));
+
+    return [
+      Pago(
+        id: 'p1',
+        ordenId: 'e9',
+        monto: 3000,
+        fecha: hace(1),
+        metodoPago: MetodoPago.efectivo,
+        notas: [
+          Nota(
+            texto: 'Anticipo en efectivo. Cliente entregó al recibir el '
+                'vehículo.',
+            fecha: hace(1),
+          ),
+        ],
+      ),
+      Pago(
+        id: 'p2',
+        ordenId: 'e11',
+        monto: 1850,
+        fecha: hace(3),
+        metodoPago: MetodoPago.otro,
+        metodoPagoOtro: 'Transferencia BAC',
+        notas: [
+          Nota(
+            texto: 'Pago completo por transferencia BAC. '
+                'Confirmación 4422-XX.',
+            fecha: hace(3),
+          ),
+        ],
+      ),
+      // Pago cancelado de ejemplo: contra e9, $1,000 que el cliente
+      // pidió revertir. Sigue visible (tachado) pero NO cuenta para el
+      // saldo de e9 (que queda en $3,000 cobrado de $6,700).
+      Pago(
+        id: 'p3',
+        ordenId: 'e9',
+        monto: 1000,
+        fecha: hace(1),
+        metodoPago: MetodoPago.zelle,
+        canceladoAt: DateTime.now(),
+        motivoCancelacion:
+            'Transferencia rebotó por error en datos. Se reintentará.',
+        notas: [
+          Nota(
+            texto: 'Intento de pago Zelle (cancelado).',
+            fecha: hace(1),
+          ),
+        ],
       ),
     ];
   }

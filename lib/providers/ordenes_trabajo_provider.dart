@@ -38,21 +38,64 @@ class OrdenesTrabajoController {
 
   final OrdenesTrabajoRepository _repo;
 
+  /// Alta de una orden de trabajo (nueva fila).
+  ///
+  /// El `id` debe estar generado client-side (UUID v4). Las fases siguientes
+  /// — fotos, PDFs, notas — se agregan después por separado vía el modal de
+  /// detalle.
+  Future<void> agregarOrdenTrabajo(OrdenTrabajo ordenTrabajo) {
+    return _repo.upsertOrdenTrabajo(ordenTrabajo);
+  }
+
   /// Mueve una orden a otra columna del Kanban o pestaña.
   Future<void> moverA(OrdenTrabajo ordenTrabajo, EstadoKanban destino) {
     return _repo.updateEstado(ordenTrabajo.id, destino);
   }
 
-  /// Cierre de trato remoto: inyecta el monto de la opción que el cliente
-  /// aprobó en el lugar y envía la tarjeta a "Pendientes de Trabajo".
+  /// Reasigna la orden a otro cliente del directorio.
+  /// No hace nada si el cliente es el mismo.
+  Future<void> cambiarCliente(
+    OrdenTrabajo ordenTrabajo,
+    String nuevoClienteId,
+  ) {
+    if (ordenTrabajo.clienteId == nuevoClienteId) return Future.value();
+    return _repo.upsertOrdenTrabajo(
+      ordenTrabajo.copyWith(clienteId: nuevoClienteId),
+    );
+  }
+
+  /// Cierre de trato remoto: mueve la orden a "Pendientes de Trabajo".
+  /// Si [montoAprobado] viene con valor, lo registra; si es `null`, solo
+  /// mueve el estado sin tocar el monto previo (sirve cuando la orden no
+  /// tiene Estimados PDF y aún no se acordó cifra).
   Future<void> aprobarTrato({
     required OrdenTrabajo ordenTrabajo,
-    required PdfCotizacion opcionElegida,
+    double? montoAprobado,
+  }) {
+    if (montoAprobado == null) {
+      return _repo.updateEstado(
+          ordenTrabajo.id, EstadoKanban.pendienteTrabajo);
+    }
+    return _repo.aprobarOrdenTrabajo(
+      id: ordenTrabajo.id,
+      montoAprobado: montoAprobado,
+      nuevoEstado: EstadoKanban.pendienteTrabajo,
+    );
+  }
+
+  /// Mueve la orden a [destino] sobrescribiendo el `monto_aprobado` con
+  /// [monto]. Operación atómica (un solo UPDATE en Supabase). Pensado
+  /// para transiciones como "En Proceso → Pendiente de Pago" donde se
+  /// fija el monto definitivo a cobrar.
+  Future<void> moverConMonto({
+    required OrdenTrabajo ordenTrabajo,
+    required double monto,
+    required EstadoKanban destino,
   }) {
     return _repo.aprobarOrdenTrabajo(
       id: ordenTrabajo.id,
-      montoAprobado: opcionElegida.montoSugerido,
-      nuevoEstado: EstadoKanban.pendienteTrabajo,
+      montoAprobado: monto,
+      nuevoEstado: destino,
     );
   }
 
@@ -64,6 +107,14 @@ class OrdenesTrabajoController {
   /// Restaura una orden archivada al tablero.
   Future<void> restaurar(OrdenTrabajo ordenTrabajo) {
     return _repo.setArchivado(ordenTrabajo.id, false);
+  }
+
+  /// Soft delete: la orden desaparece de todas las vistas (incluido el
+  /// tablero de archivadas). Los pagos vinculados quedan huérfanos en la
+  /// BD para auditoría — el cascade SQL los borra solo si se hace HARD
+  /// delete, no si se hace soft delete. Recuperable por SQL.
+  Future<void> eliminarOrdenTrabajo(OrdenTrabajo ordenTrabajo) {
+    return _repo.softDeleteOrdenTrabajo(ordenTrabajo.id);
   }
 
   /// Agrega una cotización (PDF) a la orden.

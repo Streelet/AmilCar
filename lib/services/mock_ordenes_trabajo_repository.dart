@@ -24,8 +24,9 @@ class MockOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
     yield* _controller.stream;
   }
 
-  List<OrdenTrabajo> _snapshot() =>
-      List<OrdenTrabajo>.unmodifiable(_ordenesTrabajo);
+  /// Snapshot filtra los soft-deleted (mismo comportamiento que RLS).
+  List<OrdenTrabajo> _snapshot() => List<OrdenTrabajo>.unmodifiable(
+      _ordenesTrabajo.where((o) => o.deletedAt == null));
 
   void _emit() {
     if (!_controller.isClosed) {
@@ -82,6 +83,16 @@ class MockOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
     } else {
       _ordenesTrabajo[i] = ordenTrabajo;
     }
+    _emit();
+  }
+
+  @override
+  Future<void> softDeleteOrdenTrabajo(String id) async {
+    await _simularLatencia();
+    final i = _indexOf(id);
+    if (i == -1) return;
+    _ordenesTrabajo[i] =
+        _ordenesTrabajo[i].copyWith(deletedAt: DateTime.now());
     _emit();
   }
 

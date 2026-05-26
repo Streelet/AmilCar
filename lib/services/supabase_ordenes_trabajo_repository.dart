@@ -18,7 +18,13 @@ class SupabaseOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
         .from(_tabla)
         .stream(primaryKey: ['id'])
         .order('created_at')
-        .map((rows) => rows.map(OrdenTrabajo.fromJson).toList());
+        .map((rows) => rows
+            .map(OrdenTrabajo.fromJson)
+            // Filtro defensivo: las políticas RLS ya excluyen los soft
+            // deleted, pero el canal realtime puede re-emitir un UPDATE
+            // de una orden recién borrada sin sacarla del cache local.
+            .where((o) => o.deletedAt == null)
+            .toList());
   }
 
   @override
@@ -50,6 +56,14 @@ class SupabaseOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
   @override
   Future<void> upsertOrdenTrabajo(OrdenTrabajo ordenTrabajo) async {
     await _client.from(_tabla).upsert(ordenTrabajo.toJson());
+  }
+
+  @override
+  Future<void> softDeleteOrdenTrabajo(String id) async {
+    await _client
+        .from(_tabla)
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', id);
   }
 
   @override

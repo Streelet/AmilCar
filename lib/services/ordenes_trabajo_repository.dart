@@ -33,6 +33,11 @@ abstract interface class OrdenesTrabajoRepository {
   /// Persiste cambios generales de una orden (edición de campos).
   Future<void> upsertOrdenTrabajo(OrdenTrabajo ordenTrabajo);
 
+  /// Soft delete: marca `deleted_at = now()`. La orden y sus pagos
+  /// vinculados (vía cascade) desaparecen de la app, pero las filas
+  /// permanecen para auditoría.
+  Future<void> softDeleteOrdenTrabajo(String id);
+
   /// Libera recursos (cierra streams). Llamar al destruir el provider.
   void dispose();
 }

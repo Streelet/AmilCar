@@ -4,17 +4,16 @@
 --  Ejecuta este script en el SQL Editor de tu proyecto Supabase ANTES de
 --  cambiar AppConfig.useMockData a false.
 --
---  Crea:
---   1. Tabla `perfiles`        (id, rol, nombre, foto_url) ligada a auth.users
---   2. Tabla `clientes`        (directorio normalizado de clientes)
---   3. Tabla `ordenes_trabajo` (modelo relacional del Kanban) con FK -> clientes
---   4. Políticas RLS
---   5. Trigger que crea el perfil automáticamente al registrarse un usuario
---   6. Realtime habilitado sobre `clientes` y `ordenes_trabajo`
+--  Tablas:
+--   1. perfiles         — usuarios + rol (ligada a auth.users)
+--   2. clientes         — directorio normalizado
+--   3. ordenes_trabajo  — modelo principal (FK -> clientes)
+--   4. pagos            — pagos / anticipos (FK -> ordenes_trabajo)
 --
---  MIGRACIÓN: si tu BD ya tenía una tabla `estimados` (nombre viejo), el
---  bloque al final de la sección 3 la renombra a `ordenes_trabajo` de forma
---  idempotente.
+--  Soft delete: clientes, ordenes_trabajo y pagos llevan `deleted_at`.
+--  Las políticas SELECT lo filtran, así que las filas soft-deleted son
+--  invisibles para el cliente vía API y realtime. La recuperación se hace
+--  por SQL (set deleted_at = null).
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -42,8 +41,13 @@ create table if not exists public.clientes (
   telefono    text,
   direccion   text,
   email       text,
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  deleted_at  timestamptz
 );
+
+-- Compat: agrega deleted_at si la tabla existía sin él.
+alter table public.clientes
+  add column if not exists deleted_at timestamptz;
 
 comment on table public.clientes is
   'Directorio de clientes del taller. Un mismo cliente puede tener varias '
@@ -52,12 +56,13 @@ comment on table public.clientes is
   'registra el auto sobre el que se trabajó en esa ocasión.';
 
 create index if not exists clientes_nombre_idx on public.clientes (nombre);
+create index if not exists clientes_activos_idx
+  on public.clientes (id) where deleted_at is null;
 
 -- ----------------------------------------------------------------------------
 -- 3) TABLA: ordenes_trabajo
 -- ----------------------------------------------------------------------------
--- Migración del nombre viejo: si existe `estimados` (esquema anterior),
--- renómbrala a `ordenes_trabajo` antes de crearla. Es idempotente.
+-- Migración del nombre viejo: si existe `estimados`, renómbrala.
 do $$
 begin
   if exists (
@@ -92,15 +97,23 @@ create table if not exists public.ordenes_trabajo (
                     'pendiente_pago'
                   )),
   archivado       boolean not null default false,
-  created_at      timestamptz not null default now()
+  created_at      timestamptz not null default now(),
+  deleted_at      timestamptz
 );
+
+-- Compat para tablas existentes.
+alter table public.ordenes_trabajo
+  add column if not exists cliente_id uuid references public.clientes (id) on delete restrict;
+alter table public.ordenes_trabajo
+  add column if not exists notas jsonb not null default '[]'::jsonb;
+alter table public.ordenes_trabajo
+  add column if not exists deleted_at timestamptz;
 
 comment on table public.ordenes_trabajo is
   'Órdenes de trabajo del taller. Atraviesan todas las fases del flujo '
-  '(desde "Por Hacer" en el Kanban de "Pendientes de Estimado" hasta '
-  '"Pendiente de Pago"). El contacto del cliente se resuelve por '
-  'cliente_id; el vehículo y todos los entregables (fotos, PDFs de '
-  'cotización, notas, monto) son por-orden.';
+  '(desde "Por Hacer" en el Kanban hasta "Pendiente de Pago"). El '
+  'contacto del cliente se resuelve por cliente_id; el vehículo y los '
+  'entregables (fotos, PDFs, notas) son por-orden.';
 
 create index if not exists ordenes_trabajo_estado_idx
   on public.ordenes_trabajo (estado_kanban);
@@ -108,47 +121,83 @@ create index if not exists ordenes_trabajo_archivado_idx
   on public.ordenes_trabajo (archivado);
 create index if not exists ordenes_trabajo_cliente_idx
   on public.ordenes_trabajo (cliente_id);
-
--- Compatibilidad hacia adelante: si la tabla `ordenes_trabajo` existía con
--- el esquema viejo (denormalizado), agrega las columnas faltantes. Bloques
--- idempotentes — seguros de re-ejecutar.
-alter table public.ordenes_trabajo
-  add column if not exists cliente_id uuid references public.clientes (id) on delete restrict;
-alter table public.ordenes_trabajo
-  add column if not exists notas jsonb not null default '[]'::jsonb;
-
--- Si quedan columnas denormalizadas viejas, deja constancia para migración
--- manual de datos. Una vez que `cliente_id` esté poblado para todas las
--- filas, ejecuta a mano:
---   alter table public.ordenes_trabajo drop column if exists cliente_nombre;
---   alter table public.ordenes_trabajo drop column if exists telefono;
---   alter table public.ordenes_trabajo drop column if exists direccion;
--- (No las dropeamos automáticamente para no perder datos accidentalmente.)
+create index if not exists ordenes_trabajo_activas_idx
+  on public.ordenes_trabajo (id) where deleted_at is null;
 
 -- ----------------------------------------------------------------------------
--- 4) ROW LEVEL SECURITY
+-- 4) TABLA: pagos
+-- ----------------------------------------------------------------------------
+create table if not exists public.pagos (
+  id               uuid primary key default gen_random_uuid(),
+  orden_id         uuid not null references public.ordenes_trabajo (id) on delete cascade,
+  monto            numeric not null check (monto > 0),
+  fecha            timestamptz not null default now(),
+  metodo_pago      text not null default 'efectivo'
+                   check (metodo_pago in (
+                     'efectivo','cheque','tarjeta_credito',
+                     'tarjeta_debito','zelle','otro'
+                   )),
+  metodo_pago_otro text,  -- descripción libre cuando metodo_pago = 'otro'
+  notas            jsonb not null default '[]'::jsonb,
+  created_at       timestamptz not null default now(),
+  deleted_at       timestamptz
+);
+
+comment on table public.pagos is
+  'Pagos / anticipos registrados contra una orden de trabajo. La suma de '
+  'pagos.monto vs ordenes_trabajo.monto_aprobado da el restante a cobrar. '
+  'Cada pago lleva fecha, monto, método (enum) y notas (JSON array).';
+
+-- Compatibilidad: agrega las columnas de método si la tabla existía antes.
+alter table public.pagos
+  add column if not exists metodo_pago text not null default 'efectivo';
+alter table public.pagos
+  add column if not exists metodo_pago_otro text;
+
+-- Re-aplica el check constraint (idempotente).
+alter table public.pagos drop constraint if exists pagos_metodo_pago_check;
+alter table public.pagos add constraint pagos_metodo_pago_check
+  check (metodo_pago in (
+    'efectivo','cheque','tarjeta_credito',
+    'tarjeta_debito','zelle','otro'
+  ));
+
+-- Columnas para CANCELAR un pago: la fila se conserva visible en la UI
+-- (tachada) pero deja de contar para el saldo. Distinto de `deleted_at`
+-- que oculta totalmente.
+alter table public.pagos
+  add column if not exists cancelado_at timestamptz;
+alter table public.pagos
+  add column if not exists motivo_cancelacion text;
+
+create index if not exists pagos_orden_idx on public.pagos (orden_id);
+create index if not exists pagos_fecha_idx on public.pagos (fecha desc);
+create index if not exists pagos_activos_idx
+  on public.pagos (id) where deleted_at is null;
+
+-- ----------------------------------------------------------------------------
+-- 5) ROW LEVEL SECURITY
 -- ----------------------------------------------------------------------------
 alter table public.perfiles        enable row level security;
 alter table public.clientes        enable row level security;
 alter table public.ordenes_trabajo enable row level security;
+alter table public.pagos           enable row level security;
 
--- Perfiles: cada usuario lee su propio perfil (el login lo necesita).
+-- Perfiles: cada usuario ve/edita su propio perfil.
 drop policy if exists "perfil_propio_select" on public.perfiles;
 create policy "perfil_propio_select"
-  on public.perfiles for select
-  using (auth.uid() = id);
+  on public.perfiles for select using (auth.uid() = id);
 
--- Perfiles: cada usuario puede actualizar su propio perfil (nombre, foto).
 drop policy if exists "perfil_propio_update" on public.perfiles;
 create policy "perfil_propio_update"
-  on public.perfiles for update
-  using (auth.uid() = id);
+  on public.perfiles for update using (auth.uid() = id);
 
--- Clientes: cualquier usuario autenticado puede leer y escribir.
+-- ── Clientes ──────────────────────────────────────────────────────────────
+-- SELECT esconde soft-deleted.
 drop policy if exists "clientes_select" on public.clientes;
 create policy "clientes_select"
   on public.clientes for select
-  using (auth.role() = 'authenticated');
+  using (auth.role() = 'authenticated' and deleted_at is null);
 
 drop policy if exists "clientes_insert" on public.clientes;
 create policy "clientes_insert"
@@ -160,15 +209,13 @@ create policy "clientes_update"
   on public.clientes for update
   using (auth.role() = 'authenticated');
 
--- Órdenes de trabajo: cualquier usuario autenticado puede leer y escribir.
--- Las restricciones por rol (asesor no ve "Pendiente de Pago", solo admin
--- archiva) se aplican en la interfaz. Para endurecer la seguridad a nivel
--- de base de datos, reemplaza estas políticas por reglas que comparen el
--- rol del usuario en `perfiles`.
+-- (Sin política DELETE: el borrado es soft via UPDATE deleted_at.)
+
+-- ── Órdenes de trabajo ────────────────────────────────────────────────────
 drop policy if exists "ordenes_trabajo_select" on public.ordenes_trabajo;
 create policy "ordenes_trabajo_select"
   on public.ordenes_trabajo for select
-  using (auth.role() = 'authenticated');
+  using (auth.role() = 'authenticated' and deleted_at is null);
 
 drop policy if exists "ordenes_trabajo_insert" on public.ordenes_trabajo;
 create policy "ordenes_trabajo_insert"
@@ -180,20 +227,31 @@ create policy "ordenes_trabajo_update"
   on public.ordenes_trabajo for update
   using (auth.role() = 'authenticated');
 
-drop policy if exists "ordenes_trabajo_delete" on public.ordenes_trabajo;
-create policy "ordenes_trabajo_delete"
-  on public.ordenes_trabajo for delete
-  using (auth.role() = 'authenticated');
-
--- Si quedaban políticas con el nombre viejo (de cuando la tabla se llamaba
--- `estimados`), límpialas para no acumular duplicadas.
+-- Limpieza de políticas legacy.
 drop policy if exists "estimados_select" on public.ordenes_trabajo;
 drop policy if exists "estimados_insert" on public.ordenes_trabajo;
 drop policy if exists "estimados_update" on public.ordenes_trabajo;
 drop policy if exists "estimados_delete" on public.ordenes_trabajo;
+drop policy if exists "ordenes_trabajo_delete" on public.ordenes_trabajo;
+
+-- ── Pagos ─────────────────────────────────────────────────────────────────
+drop policy if exists "pagos_select" on public.pagos;
+create policy "pagos_select"
+  on public.pagos for select
+  using (auth.role() = 'authenticated' and deleted_at is null);
+
+drop policy if exists "pagos_insert" on public.pagos;
+create policy "pagos_insert"
+  on public.pagos for insert
+  with check (auth.role() = 'authenticated');
+
+drop policy if exists "pagos_update" on public.pagos;
+create policy "pagos_update"
+  on public.pagos for update
+  using (auth.role() = 'authenticated');
 
 -- ----------------------------------------------------------------------------
--- 5) TRIGGER: crear perfil automáticamente al registrarse un usuario
+-- 6) TRIGGER: crear perfil automáticamente al registrarse un usuario
 -- ----------------------------------------------------------------------------
 create or replace function public.handle_new_user()
 returns trigger
@@ -218,10 +276,55 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ----------------------------------------------------------------------------
--- 6) REALTIME: emitir cambios por WebSocket
+-- 7) STORAGE: buckets para fotos de órdenes y PDFs de cotizaciones
 -- ----------------------------------------------------------------------------
--- Idempotente: si la tabla ya está en la publicación, ignora el error.
--- También quita la entrada vieja `estimados` si quedó remanente.
+-- Buckets públicos: las URLs son opacas (incluyen uuid aleatorio + path con
+-- el id de orden), así que no se enumeran. Los archivos quedan accesibles
+-- por quien tenga el link. Si en el futuro hace falta restringir, se
+-- pueden migrar a buckets privados con `signed URLs`.
+insert into storage.buckets (id, name, public)
+values ('fotos-ordenes', 'fotos-ordenes', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('cotizaciones-pdf', 'cotizaciones-pdf', true)
+on conflict (id) do nothing;
+
+-- Políticas RLS sobre `storage.objects`. Solo usuarios autenticados pueden
+-- subir/leer; lectura pública adicional para que las URLs cargue cualquier
+-- visor (PDF/Image) sin token.
+drop policy if exists "amilcar_storage_select" on storage.objects;
+create policy "amilcar_storage_select"
+  on storage.objects for select
+  using (bucket_id in ('fotos-ordenes','cotizaciones-pdf'));
+
+drop policy if exists "amilcar_storage_insert" on storage.objects;
+create policy "amilcar_storage_insert"
+  on storage.objects for insert
+  with check (
+    bucket_id in ('fotos-ordenes','cotizaciones-pdf')
+    and auth.role() = 'authenticated'
+  );
+
+drop policy if exists "amilcar_storage_update" on storage.objects;
+create policy "amilcar_storage_update"
+  on storage.objects for update
+  using (
+    bucket_id in ('fotos-ordenes','cotizaciones-pdf')
+    and auth.role() = 'authenticated'
+  );
+
+drop policy if exists "amilcar_storage_delete" on storage.objects;
+create policy "amilcar_storage_delete"
+  on storage.objects for delete
+  using (
+    bucket_id in ('fotos-ordenes','cotizaciones-pdf')
+    and auth.role() = 'authenticated'
+  );
+
+-- ----------------------------------------------------------------------------
+-- 8) REALTIME: emitir cambios por WebSocket
+-- ----------------------------------------------------------------------------
 do $$
 begin
   begin
@@ -237,30 +340,24 @@ begin
     alter publication supabase_realtime add table public.ordenes_trabajo;
   exception when duplicate_object then null;
   end;
+  begin
+    alter publication supabase_realtime add table public.pagos;
+  exception when duplicate_object then null;
+  end;
 end $$;
 
 -- ============================================================================
---  DATOS INICIALES (opcional)
+--  RECUPERACIÓN DE FILAS SOFT-DELETED (sólo admin, vía SQL Editor)
 -- ----------------------------------------------------------------------------
---  Crea dos usuarios desde Authentication > Users en el panel de Supabase
---  (p. ej. admin@amilcar.com y asesor@amilcar.com). El trigger anterior les
---  creará un perfil con rol 'asesor'. Luego ajusta el rol del administrador:
+--  Las políticas SELECT filtran `deleted_at is null`, así que las filas
+--  borradas suaves son invisibles desde la app. Para recuperar:
 --
---    update public.perfiles set rol = 'admin'
---      where email = 'admin@amilcar.com';
+--    update public.clientes        set deleted_at = null where id = '...';
+--    update public.ordenes_trabajo set deleted_at = null where id = '...';
+--    update public.pagos           set deleted_at = null where id = '...';
 --
---  Ejemplo de cliente + orden de prueba (ya normalizada):
+--  Para ver lo borrado (bypass RLS desde el SQL Editor, que usa
+--  service_role):
 --
---    with nuevo_cliente as (
---      insert into public.clientes (nombre, telefono, direccion, email)
---      values ('Cliente Demo', '+502 0000 0000', 'Zona 10', 'demo@correo.com')
---      returning id
---    )
---    insert into public.ordenes_trabajo
---      (cliente_id, vehiculo_marca, vehiculo_modelo, vehiculo_anio,
---       estado_kanban, pdfs_urls)
---    select id, 'Toyota', 'Hilux', 2021, 'esperando_aprobacion',
---           '[{"titulo":"OEM","url":"demo.pdf","monto_sugerido":5000},
---             {"titulo":"Aftermarket","url":"demo2.pdf","monto_sugerido":3500}]'::jsonb
---    from nuevo_cliente;
+--    select * from public.clientes where deleted_at is not null;
 -- ============================================================================

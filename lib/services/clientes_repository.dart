@@ -16,6 +16,11 @@ abstract interface class ClientesRepository {
   /// Persiste cambios generales de un cliente (alta o edición).
   Future<void> upsertCliente(Cliente cliente);
 
+  /// Soft delete: marca `deleted_at = now()`. El cliente desaparece de
+  /// todas las queries pero la fila permanece en la BD para auditoría.
+  /// Recuperable por SQL.
+  Future<void> softDeleteCliente(String id);
+
   /// Libera recursos (cierra streams). Llamar al destruir el provider.
   void dispose();
 }

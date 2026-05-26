@@ -23,7 +23,11 @@ class MockClientesRepository implements ClientesRepository {
     yield* _controller.stream;
   }
 
-  List<Cliente> _snapshot() => List<Cliente>.unmodifiable(_clientes);
+  /// Snapshot filtra los soft-deleted (mismo comportamiento que las
+  /// políticas RLS de Supabase: las filas con `deleted_at != null` son
+  /// invisibles desde la app).
+  List<Cliente> _snapshot() => List<Cliente>.unmodifiable(
+      _clientes.where((c) => c.deletedAt == null));
 
   void _emit() {
     if (!_controller.isClosed) {
@@ -45,6 +49,15 @@ class MockClientesRepository implements ClientesRepository {
     } else {
       _clientes[i] = cliente;
     }
+    _emit();
+  }
+
+  @override
+  Future<void> softDeleteCliente(String id) async {
+    await _simularLatencia();
+    final i = _indexOf(id);
+    if (i == -1) return;
+    _clientes[i] = _clientes[i].copyWith(deletedAt: DateTime.now());
     _emit();
   }
 

@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necesario para que el APK de release se pueda comunicar con
+         Supabase (login, BD, Storage). Sin esto Android bloquea cualquier
+         request de red y la app reporta "sin conexión". -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="amilcar"
         android:name="${applicationName}"

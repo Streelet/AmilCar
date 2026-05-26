@@ -100,32 +100,51 @@ class KanbanCard extends ConsumerWidget {
             ),
           ],
           const SizedBox(height: 12),
-          // Etiqueta con el teléfono. Tinte del estado para conservar la
-          // identidad de color de la columna; número en tono oscuro de alto
-          // contraste para que se lea con claridad.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: estilo.container,
-                borderRadius: BorderRadius.circular(AppRadii.full),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.phone_rounded, size: 13, color: estilo.color),
-                  const SizedBox(width: 6),
-                  Text(
-                    telefono,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: AppColors.onSurface,
-                      fontWeight: FontWeight.w700,
+          // Fila inferior: teléfono (tinte del estado) + fecha relativa
+          // muy pequeña a la derecha, como pista de antigüedad sin abrir
+          // el detalle.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: estilo.container,
+                      borderRadius: BorderRadius.circular(AppRadii.full),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.phone_rounded,
+                            size: 13, color: estilo.color),
+                        const SizedBox(width: 6),
+                        Text(
+                          telefono,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: AppColors.onSurface,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+              if (ordenTrabajo.fechaRelativa.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Text(
+                  ordenTrabajo.fechaRelativa,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
