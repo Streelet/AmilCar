@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/perfil.dart';
 import '../../providers/auth_provider.dart';
 import '../../theme/app_colors.dart';
+import '../admin/audit_log_page.dart';
 import '../profile_screen.dart';
 import 'perfil_avatar.dart';
 
@@ -43,6 +44,16 @@ class UserAvatarMenu extends ConsumerWidget {
             texto: 'Ver Perfil',
           ),
         ),
+        // Actividad del sistema: visible solo para admins
+        if (perfil.rol.isAdmin)
+          const PopupMenuItem<String>(
+            value: 'actividad',
+            child: _OpcionMenu(
+              icono: Icons.manage_search_rounded,
+              texto: 'Actividad',
+            ),
+          ),
+        const PopupMenuDivider(),
         const PopupMenuItem<String>(
           value: 'logout',
           child: _OpcionMenu(
@@ -67,6 +78,13 @@ class UserAvatarMenu extends ConsumerWidget {
     if (valor == 'perfil') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+      );
+      return;
+    }
+
+    if (valor == 'actividad') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const AuditLogPage()),
       );
       return;
     }

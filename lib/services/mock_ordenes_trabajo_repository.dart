@@ -44,8 +44,14 @@ class MockOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
     await _simularLatencia();
     final i = _indexOf(id);
     if (i == -1) return;
-    _ordenesTrabajo[i] =
-        _ordenesTrabajo[i].copyWith(estadoKanban: nuevoEstado);
+    // Simula el trigger de Postgres: solo actualiza si el estado cambia.
+    final actual = _ordenesTrabajo[i];
+    _ordenesTrabajo[i] = actual.copyWith(
+      estadoKanban: nuevoEstado,
+      estadoUpdatedAt: actual.estadoKanban != nuevoEstado
+          ? DateTime.now()
+          : actual.estadoUpdatedAt,
+    );
     _emit();
   }
 
@@ -58,9 +64,13 @@ class MockOrdenesTrabajoRepository implements OrdenesTrabajoRepository {
     await _simularLatencia();
     final i = _indexOf(id);
     if (i == -1) return;
-    _ordenesTrabajo[i] = _ordenesTrabajo[i].copyWith(
+    final actual = _ordenesTrabajo[i];
+    _ordenesTrabajo[i] = actual.copyWith(
       montoAprobado: montoAprobado,
       estadoKanban: nuevoEstado,
+      estadoUpdatedAt: actual.estadoKanban != nuevoEstado
+          ? DateTime.now()
+          : actual.estadoUpdatedAt,
     );
     _emit();
   }

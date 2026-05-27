@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/audit_entry.dart';
 import '../models/pago.dart';
 import '../services/pagos_repository.dart';
+import 'audit_provider.dart';
 import 'repository_providers.dart';
 
 /// Flujo en tiempo real de TODOS los pagos activos (no soft-deleted).
@@ -49,19 +51,46 @@ final resumenPagosProvider =
 
 /// Acciones de negocio sobre los pagos.
 class PagosController {
-  PagosController(this._repo);
+  PagosController(this._repo, this._audit);
 
   final PagosRepository _repo;
+  final AuditLogger _audit;
 
   /// Alta o edición de un pago.
-  Future<void> registrarOEditarPago(Pago pago) => _repo.upsertPago(pago);
+  Future<void> registrarOEditarPago(Pago pago, {bool esNuevo = false}) async {
+    await _repo.upsertPago(pago);
+    _audit.log(
+      accion: esNuevo ? AuditAccion.registrarPago : AuditAccion.editarPago,
+      entidad: 'pago',
+      entidadId: pago.id,
+      datos: {
+        'orden_id': pago.ordenId,
+        'monto': pago.monto,
+        'metodo': pago.metodoPago.label,
+      },
+    );
+  }
 
   /// Cancela un pago: queda visible (tachado) y guarda el [motivo], pero
   /// deja de contar para el saldo.
-  Future<void> cancelarPago(Pago pago, String motivo) =>
-      _repo.cancelarPago(pago.id, motivo);
+  Future<void> cancelarPago(Pago pago, String motivo) async {
+    await _repo.cancelarPago(pago.id, motivo);
+    _audit.log(
+      accion: AuditAccion.cancelarPago,
+      entidad: 'pago',
+      entidadId: pago.id,
+      datos: {
+        'orden_id': pago.ordenId,
+        'monto': pago.monto,
+        'motivo': motivo,
+      },
+    );
+  }
 }
 
 final pagosControllerProvider = Provider<PagosController>((ref) {
-  return PagosController(ref.watch(pagosRepositoryProvider));
+  return PagosController(
+    ref.watch(pagosRepositoryProvider),
+    ref.watch(auditLoggerProvider),
+  );
 });

@@ -12,6 +12,8 @@ import '../../models/orden_trabajo.dart';
 import '../../models/pago.dart';
 import '../../models/pdf_cotizacion.dart';
 import '../../models/perfil.dart';
+import '../../models/audit_entry.dart';
+import '../../providers/audit_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/clientes_provider.dart';
 import '../../providers/ordenes_trabajo_provider.dart';
@@ -927,6 +929,13 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       // Reasocia los bytes locales a la URL nueva, así el visor de la
       // sesión los muestra al instante (sin esperar la descarga).
       _fotosLocales[url] = archivo.bytes!;
+      // Auditoría (fire-and-forget).
+      ref.read(auditLoggerProvider).log(
+        accion: AuditAccion.subirFoto,
+        entidad: 'orden_trabajo',
+        entidadId: e.id,
+        datos: {'archivo': archivo.name},
+      );
       if (mounted) setState(() => _ocupado = false);
     } catch (err) {
       if (mounted) setState(() => _ocupado = false);
@@ -956,9 +965,12 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       // Supabase = url pública del bucket) es la que persiste en la BD.
       String urlPdf;
       if (_pdfNombre != null && _pdfsLocales[_pdfNombre!] != null) {
+        // Usamos el título del estimado como nombre del archivo para que
+        // sea legible en Supabase Storage (ej. "OEM.pdf", "Alternativo.pdf")
+        // en lugar del nombre original del archivo descargado del disco.
         urlPdf = await ref.read(storageRepositoryProvider).subirPdf(
               bytes: _pdfsLocales[_pdfNombre!]!,
-              nombreArchivo: _pdfNombre!,
+              nombreArchivo: '$titulo.pdf',
               ordenId: e.id,
             );
         // Reasocia bytes a la URL nueva para que el visor PDF integrado
@@ -979,6 +991,13 @@ class _TarjetaDetalleState extends ConsumerState<_TarjetaDetalle> {
       await ref
           .read(ordenesTrabajoControllerProvider)
           .agregarCotizacion(e, cotizacion);
+      // Auditoría (fire-and-forget).
+      ref.read(auditLoggerProvider).log(
+        accion: AuditAccion.subirPdf,
+        entidad: 'orden_trabajo',
+        entidadId: e.id,
+        datos: {'titulo': titulo, 'monto': monto},
+      );
       if (!mounted) return;
       setState(() => _ocupado = false);
       _cerrarForm();

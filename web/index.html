@@ -34,6 +34,15 @@
 
   <title>AmilCar Auto Service</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    PDF.js — el paquete `printing` carga pdf.js automáticamente al usarlo,
+    no hace falta `<script>` manual. Por defecto la baja de unpkg@3.2.146;
+    si quisiéramos servirla localmente, podríamos definir
+    `var dartPdfJsBaseUrl = "pdfjs/";` apuntando a `web/pdfjs/`. Por ahora
+    dejamos el comportamiento por defecto (CDN) para descartar problemas
+    de paths relativos al servir el preview desde rutas anidadas.
+  -->
 </head>
 <body>
   <!--

@@ -154,7 +154,7 @@ class _PagoFormDialogState extends ConsumerState<_PagoFormDialog> {
     try {
       await ref
           .read(pagosControllerProvider)
-          .registrarOEditarPago(pago);
+          .registrarOEditarPago(pago, esNuevo: !_esEdicion);
       if (!mounted) return;
       Navigator.of(context).pop(pago);
     } catch (e) {

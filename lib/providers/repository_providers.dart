@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_config.dart';
+import '../services/audit_repository.dart';
 import '../services/auth_repository.dart';
 import '../services/clientes_repository.dart';
+import '../services/mock_audit_repository.dart';
 import '../services/mock_auth_repository.dart';
 import '../services/mock_clientes_repository.dart';
 import '../services/mock_ordenes_trabajo_repository.dart';
@@ -11,6 +13,7 @@ import '../services/mock_storage_repository.dart';
 import '../services/ordenes_trabajo_repository.dart';
 import '../services/pagos_repository.dart';
 import '../services/storage_repository.dart';
+import '../services/supabase_audit_repository.dart';
 import '../services/supabase_auth_repository.dart';
 import '../services/supabase_clientes_repository.dart';
 import '../services/supabase_ordenes_trabajo_repository.dart';
@@ -61,4 +64,13 @@ final storageRepositoryProvider = Provider<StorageRepository>((ref) {
   return AppConfig.useMockData
       ? MockStorageRepository()
       : SupabaseStorageRepository();
+});
+
+/// Auditoría de acciones de usuario.
+final auditRepositoryProvider = Provider<AuditRepository>((ref) {
+  final repo = AppConfig.useMockData
+      ? MockAuditRepository()
+      : SupabaseAuditRepository();
+  ref.onDispose(repo.dispose);
+  return repo;
 });

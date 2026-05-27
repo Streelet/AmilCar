@@ -11,11 +11,13 @@ import '../../theme/estado_style.dart';
 import '../../config/app_config.dart';
 import '../../providers/filtros_provider.dart';
 import '../../providers/pagos_provider.dart';
+import '../../services/pdf_export_service.dart';
 import '../widgets/aprobacion_dialog.dart';
 import '../widgets/barra_filtros.dart';
 import '../widgets/estado_pill.dart';
 import '../widgets/orden_trabajo_detail_modal.dart';
 import '../widgets/pago_form_dialog.dart';
+import '../widgets/pdf_preview_screen.dart';
 import '../widgets/soft_card.dart';
 
 /// Estilo de la acción rápida que se aplica al apretar el botón en la fila.
@@ -180,6 +182,7 @@ class ListaOrdenesTrabajoTab extends ConsumerWidget {
                   : comoTabla
                       ? _VistaTabla(
                           items: items,
+                          estado: estado,
                           accionRapida: accionRapida,
                           vistaCobros: vistaCobros,
                         )
@@ -201,13 +204,21 @@ class ListaOrdenesTrabajoTab extends ConsumerWidget {
 class _VistaTabla extends ConsumerWidget {
   const _VistaTabla({
     required this.items,
+    required this.estado,
     this.accionRapida,
     this.vistaCobros = false,
   });
 
   final List<OrdenTrabajo> items;
+  final EstadoKanban estado;
   final AccionRapidaOrden? accionRapida;
   final bool vistaCobros;
+
+  /// Solo las pestañas "Pendientes de Trabajo" y "Pendiente de Pago" tienen
+  /// reporte PDF. Las demás (En Proceso, etc.) no — todavía.
+  bool get _puedeExportarPdf =>
+      estado == EstadoKanban.pendienteTrabajo ||
+      estado == EstadoKanban.pendientePago;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -230,10 +241,31 @@ class _VistaTabla extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                  child: Text(
-                    '${items.length} orden${items.length == 1 ? '' : 'es'} en esta etapa',
-                    style: theme.textTheme.labelMedium,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${items.length} orden${items.length == 1 ? '' : 'es'} en esta etapa',
+                          style: theme.textTheme.labelMedium,
+                        ),
+                      ),
+                      if (_puedeExportarPdf && items.isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () => _exportarPdf(
+                            context,
+                            items: items,
+                            clientesById: clientesById,
+                            pagosByOrden: pagosByOrden,
+                          ),
+                          icon: const Icon(Icons.picture_as_pdf_outlined,
+                              size: 18),
+                          label: const Text('Exportar PDF'),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 LayoutBuilder(
@@ -268,6 +300,7 @@ class _VistaTabla extends ConsumerWidget {
                               DataColumn(
                                   label: _HeaderText('Restante'),
                                   numeric: true),
+                              DataColumn(label: _HeaderText('Desde')),
                             ] else ...const [
                               DataColumn(
                                   label: _HeaderText('Monto'),
@@ -299,6 +332,7 @@ class _VistaTabla extends ConsumerWidget {
                                         orden: o,
                                         cobrado: _cobradoDe(
                                             pagosByOrden, o.id))),
+                                    DataCell(_CeldaDesde(orden: o)),
                                   ] else ...[
                                     DataCell(_CeldaMonto(orden: o)),
                                     DataCell(Text(
@@ -335,6 +369,50 @@ class _VistaTabla extends ConsumerWidget {
     return pagos
         .where((p) => !p.estaCancelado)
         .fold<double>(0, (acc, p) => acc + p.monto);
+  }
+
+  /// Abre el preview del PDF en una pantalla full-screen con controles
+  /// integrados para descargar, imprimir y compartir.
+  ///
+  /// El render del preview en web requiere `pdf.js` cargado en
+  /// `web/index.html` — ya está incluido.
+  Future<void> _exportarPdf(
+    BuildContext context, {
+    required List<OrdenTrabajo> items,
+    required Map<String, Cliente> clientesById,
+    required Map<String, List<Pago>> pagosByOrden,
+  }) async {
+    final esPago = estado == EstadoKanban.pendientePago;
+    final titulo = esPago ? 'Pendientes de Pago' : 'Pendientes de Trabajo';
+    final nombre = esPago
+        ? 'pendientes_de_pago_${_timestampArchivo()}.pdf'
+        : 'pendientes_de_trabajo_${_timestampArchivo()}.pdf';
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => PdfPreviewScreen(
+          titulo: titulo,
+          nombreArchivo: nombre,
+          buildBytes: () => esPago
+              ? PdfExportService.pendientesDePago(
+                  ordenes: items,
+                  clientesById: clientesById,
+                  pagosByOrdenId: pagosByOrden,
+                )
+              : PdfExportService.pendientesDeTrabajo(
+                  ordenes: items,
+                  clientesById: clientesById,
+                ),
+        ),
+      ),
+    );
+  }
+
+  static String _timestampArchivo() {
+    final d = DateTime.now();
+    String dos(int n) => n.toString().padLeft(2, '0');
+    return '${d.year}${dos(d.month)}${dos(d.day)}_${dos(d.hour)}${dos(d.minute)}';
   }
 }
 
@@ -499,6 +577,58 @@ class _CeldaVehiculo extends StatelessWidget {
                   ?.copyWith(color: AppColors.onSurfaceVariant),
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// Celda que muestra cuándo la orden entró al estado actual.
+/// Usa [OrdenTrabajo.estadoUpdatedAt] (poblado por el trigger de Postgres).
+class _CeldaDesde extends StatelessWidget {
+  const _CeldaDesde({required this.orden});
+  final OrdenTrabajo orden;
+
+  @override
+  Widget build(BuildContext context) {
+    final fecha = orden.estadoUpdatedAt;
+    final theme = Theme.of(context);
+
+    if (fecha == null) {
+      return Text(
+        '—',
+        style: theme.textTheme.bodyMedium
+            ?.copyWith(color: AppColors.onSurfaceVariant),
+      );
+    }
+
+    final d = fecha.toLocal();
+    String dos(int n) => n.toString().padLeft(2, '0');
+    final fechaStr =
+        '${dos(d.day)}/${dos(d.month)}/${d.year}';
+    final diff = DateTime.now().difference(fecha);
+    final relativa = switch (diff.inDays) {
+      0 => 'hoy',
+      1 => 'ayer',
+      final n when n < 7 => 'hace $n días',
+      final n when n < 30 => 'hace ${(n / 7).floor()} sem',
+      final n when n < 365 => 'hace ${(n / 30).floor()} mes',
+      _ => 'hace ${(diff.inDays / 365).floor()} año',
+    };
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          fechaStr,
+          style: theme.textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
+        ),
+        Text(
+          relativa,
+          style: theme.textTheme.labelSmall
+              ?.copyWith(color: AppColors.onSurfaceVariant),
+        ),
       ],
     );
   }
@@ -775,3 +905,4 @@ class _Mensaje extends StatelessWidget {
     );
   }
 }
+

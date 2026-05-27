@@ -33,6 +33,10 @@ dependencies:
   pdfrx: ^2.2.24
   uuid: ^4.5.3
 
+  # --- Generación e impresión/descarga de PDFs (reportes) ---
+  pdf: ^3.11.1
+  printing: ^5.13.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

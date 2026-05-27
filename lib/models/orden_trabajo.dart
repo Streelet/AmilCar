@@ -79,6 +79,7 @@ class OrdenTrabajo {
     this.archivado = false,
     this.createdAt,
     this.deletedAt,
+    this.estadoUpdatedAt,
   });
 
   /// UUID.
@@ -117,6 +118,12 @@ class OrdenTrabajo {
   /// queda oculta de todas las queries (RLS lo filtra en Supabase; el
   /// repo mock lo filtra en memoria).
   final DateTime? deletedAt;
+
+  /// Fecha en que `estado_kanban` cambió por última vez.
+  /// Lo rellena el trigger `trg_ordenes_estado_updated_at` en Postgres;
+  /// en modo mock lo setea el repositorio en cada `updateEstado`.
+  /// Nulo si la orden nunca fue movida desde su creación.
+  final DateTime? estadoUpdatedAt;
 
   /// Descripción corta del vehículo para la tarjeta, ej. "Toyota Hilux 2021".
   String get vehiculoResumen {
@@ -189,6 +196,9 @@ class OrdenTrabajo {
       deletedAt: json['deleted_at'] != null
           ? DateTime.tryParse(json['deleted_at'].toString())
           : null,
+      estadoUpdatedAt: json['estado_updated_at'] != null
+          ? DateTime.tryParse(json['estado_updated_at'].toString())
+          : null,
     );
   }
 
@@ -224,6 +234,7 @@ class OrdenTrabajo {
     bool? archivado,
     DateTime? createdAt,
     DateTime? deletedAt,
+    DateTime? estadoUpdatedAt,
   }) {
     return OrdenTrabajo(
       id: id ?? this.id,
@@ -240,6 +251,7 @@ class OrdenTrabajo {
       archivado: archivado ?? this.archivado,
       createdAt: createdAt ?? this.createdAt,
       deletedAt: deletedAt ?? this.deletedAt,
+      estadoUpdatedAt: estadoUpdatedAt ?? this.estadoUpdatedAt,
     );
   }
 

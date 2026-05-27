@@ -1,9 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/audit_entry.dart';
 import '../models/nota.dart';
 import '../models/orden_trabajo.dart';
 import '../models/pdf_cotizacion.dart';
 import '../services/ordenes_trabajo_repository.dart';
+import 'audit_provider.dart';
 import 'repository_providers.dart';
 
 /// Flujo en tiempo real de todas las órdenes de trabajo (mock o Supabase).
@@ -34,22 +36,42 @@ final ordenesTrabajoArchivadasProvider =
 /// Acciones de negocio sobre las órdenes de trabajo. Centraliza las reglas
 /// para que las vistas no manipulen el repositorio directamente.
 class OrdenesTrabajoController {
-  OrdenesTrabajoController(this._repo);
+  OrdenesTrabajoController(this._repo, this._audit);
 
   final OrdenesTrabajoRepository _repo;
+  final AuditLogger _audit;
+
+  // Helper interno para loguear acciones sobre órdenes.
+  void _log(AuditAccion accion, OrdenTrabajo o,
+      [Map<String, dynamic>? extras]) {
+    _audit.log(
+      accion: accion,
+      entidad: 'orden_trabajo',
+      entidadId: o.id,
+      datos: {
+        'vehiculo': o.vehiculoResumen,
+        ...?extras,
+      },
+    );
+  }
 
   /// Alta de una orden de trabajo (nueva fila).
   ///
   /// El `id` debe estar generado client-side (UUID v4). Las fases siguientes
   /// — fotos, PDFs, notas — se agregan después por separado vía el modal de
   /// detalle.
-  Future<void> agregarOrdenTrabajo(OrdenTrabajo ordenTrabajo) {
-    return _repo.upsertOrdenTrabajo(ordenTrabajo);
+  Future<void> agregarOrdenTrabajo(OrdenTrabajo ordenTrabajo) async {
+    await _repo.upsertOrdenTrabajo(ordenTrabajo);
+    _log(AuditAccion.crearOrden, ordenTrabajo);
   }
 
   /// Mueve una orden a otra columna del Kanban o pestaña.
-  Future<void> moverA(OrdenTrabajo ordenTrabajo, EstadoKanban destino) {
-    return _repo.updateEstado(ordenTrabajo.id, destino);
+  Future<void> moverA(OrdenTrabajo ordenTrabajo, EstadoKanban destino) async {
+    await _repo.updateEstado(ordenTrabajo.id, destino);
+    _log(AuditAccion.moverOrden, ordenTrabajo, {
+      'de': ordenTrabajo.estadoKanban.label,
+      'a': destino.label,
+    });
   }
 
   /// Reasigna la orden a otro cliente del directorio.
@@ -57,64 +79,73 @@ class OrdenesTrabajoController {
   Future<void> cambiarCliente(
     OrdenTrabajo ordenTrabajo,
     String nuevoClienteId,
-  ) {
-    if (ordenTrabajo.clienteId == nuevoClienteId) return Future.value();
-    return _repo.upsertOrdenTrabajo(
+  ) async {
+    if (ordenTrabajo.clienteId == nuevoClienteId) return;
+    await _repo.upsertOrdenTrabajo(
       ordenTrabajo.copyWith(clienteId: nuevoClienteId),
     );
+    _log(AuditAccion.editarOrden, ordenTrabajo,
+        {'cambio': 'cliente', 'nuevo_cliente_id': nuevoClienteId});
   }
 
   /// Cierre de trato remoto: mueve la orden a "Pendientes de Trabajo".
   /// Si [montoAprobado] viene con valor, lo registra; si es `null`, solo
-  /// mueve el estado sin tocar el monto previo (sirve cuando la orden no
-  /// tiene Estimados PDF y aún no se acordó cifra).
+  /// mueve el estado sin tocar el monto previo.
   Future<void> aprobarTrato({
     required OrdenTrabajo ordenTrabajo,
     double? montoAprobado,
-  }) {
+  }) async {
     if (montoAprobado == null) {
-      return _repo.updateEstado(
+      await _repo.updateEstado(
           ordenTrabajo.id, EstadoKanban.pendienteTrabajo);
+    } else {
+      await _repo.aprobarOrdenTrabajo(
+        id: ordenTrabajo.id,
+        montoAprobado: montoAprobado,
+        nuevoEstado: EstadoKanban.pendienteTrabajo,
+      );
     }
-    return _repo.aprobarOrdenTrabajo(
-      id: ordenTrabajo.id,
-      montoAprobado: montoAprobado,
-      nuevoEstado: EstadoKanban.pendienteTrabajo,
-    );
+    _log(AuditAccion.moverOrden, ordenTrabajo, {
+      'de': ordenTrabajo.estadoKanban.label,
+      'a': EstadoKanban.pendienteTrabajo.label,
+      if (montoAprobado != null) 'monto': montoAprobado,
+    });
   }
 
-  /// Mueve la orden a [destino] sobrescribiendo el `monto_aprobado` con
-  /// [monto]. Operación atómica (un solo UPDATE en Supabase). Pensado
-  /// para transiciones como "En Proceso → Pendiente de Pago" donde se
-  /// fija el monto definitivo a cobrar.
+  /// Mueve la orden a [destino] sobrescribiendo el `monto_aprobado` con [monto].
   Future<void> moverConMonto({
     required OrdenTrabajo ordenTrabajo,
     required double monto,
     required EstadoKanban destino,
-  }) {
-    return _repo.aprobarOrdenTrabajo(
+  }) async {
+    await _repo.aprobarOrdenTrabajo(
       id: ordenTrabajo.id,
       montoAprobado: monto,
       nuevoEstado: destino,
     );
+    _log(AuditAccion.moverOrden, ordenTrabajo, {
+      'de': ordenTrabajo.estadoKanban.label,
+      'a': destino.label,
+      'monto': monto,
+    });
   }
 
   /// Archiva una orden (solo admin).
-  Future<void> archivar(OrdenTrabajo ordenTrabajo) {
-    return _repo.setArchivado(ordenTrabajo.id, true);
+  Future<void> archivar(OrdenTrabajo ordenTrabajo) async {
+    await _repo.setArchivado(ordenTrabajo.id, true);
+    _log(AuditAccion.archivarOrden, ordenTrabajo);
   }
 
   /// Restaura una orden archivada al tablero.
-  Future<void> restaurar(OrdenTrabajo ordenTrabajo) {
-    return _repo.setArchivado(ordenTrabajo.id, false);
+  Future<void> restaurar(OrdenTrabajo ordenTrabajo) async {
+    await _repo.setArchivado(ordenTrabajo.id, false);
+    _log(AuditAccion.restaurarOrden, ordenTrabajo);
   }
 
-  /// Soft delete: la orden desaparece de todas las vistas (incluido el
-  /// tablero de archivadas). Los pagos vinculados quedan huérfanos en la
-  /// BD para auditoría — el cascade SQL los borra solo si se hace HARD
-  /// delete, no si se hace soft delete. Recuperable por SQL.
-  Future<void> eliminarOrdenTrabajo(OrdenTrabajo ordenTrabajo) {
-    return _repo.softDeleteOrdenTrabajo(ordenTrabajo.id);
+  /// Soft delete: la orden desaparece de todas las vistas.
+  Future<void> eliminarOrdenTrabajo(OrdenTrabajo ordenTrabajo) async {
+    await _repo.softDeleteOrdenTrabajo(ordenTrabajo.id);
+    _log(AuditAccion.eliminarOrden, ordenTrabajo);
   }
 
   /// Agrega una cotización (PDF) a la orden.
@@ -176,5 +207,6 @@ final ordenesTrabajoControllerProvider =
     Provider<OrdenesTrabajoController>((ref) {
   return OrdenesTrabajoController(
     ref.watch(ordenesTrabajoRepositoryProvider),
+    ref.watch(auditLoggerProvider),
   );
 });

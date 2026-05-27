@@ -109,6 +109,12 @@ alter table public.ordenes_trabajo
 alter table public.ordenes_trabajo
   add column if not exists deleted_at timestamptz;
 
+-- Marca el momento en que el estado cambió por última vez.
+-- La llena el trigger `trg_ordenes_estado_updated_at` (ver sección 8).
+-- Útil para saber cuándo una orden entró a "Pendiente de Pago", etc.
+alter table public.ordenes_trabajo
+  add column if not exists estado_updated_at timestamptz;
+
 comment on table public.ordenes_trabajo is
   'Órdenes de trabajo del taller. Atraviesan todas las fases del flujo '
   '(desde "Por Hacer" en el Kanban hasta "Pendiente de Pago"). El '
@@ -323,7 +329,93 @@ create policy "amilcar_storage_delete"
   );
 
 -- ----------------------------------------------------------------------------
--- 8) REALTIME: emitir cambios por WebSocket
+-- 8) TRIGGER: estado_updated_at
+-- ----------------------------------------------------------------------------
+-- Cada vez que `estado_kanban` cambia, Postgres rellena `estado_updated_at`
+-- automáticamente. La app no necesita enviarlo: el trigger lo gestiona.
+-- Funciona tanto desde la app como desde el SQL Editor (útil en migraciones).
+-- ----------------------------------------------------------------------------
+create or replace function public.set_estado_updated_at()
+returns trigger language plpgsql as $$
+begin
+  -- Solo actualiza si el estado realmente cambió.
+  if new.estado_kanban is distinct from old.estado_kanban then
+    new.estado_updated_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_ordenes_estado_updated_at on public.ordenes_trabajo;
+create trigger trg_ordenes_estado_updated_at
+  before update on public.ordenes_trabajo
+  for each row execute function public.set_estado_updated_at();
+
+-- ----------------------------------------------------------------------------
+-- 9) TABLA: audit_log  (registro de actividad por usuario)
+-- ----------------------------------------------------------------------------
+-- Guarda las acciones relevantes: login, cambios de estado, pagos, archivos…
+-- El campo `datos` es JSONB libre para contexto adicional (vehículo, montos…).
+--
+-- Política SELECT:  solo admin puede leer todos los registros.
+-- Política INSERT:  cualquier usuario autenticado puede insertar el suyo.
+--                   `usuario_id` debe ser nulo o coincidir con auth.uid().
+-- No hay UPDATE ni DELETE desde la app; el historial es inmutable.
+-- ----------------------------------------------------------------------------
+create table if not exists public.audit_log (
+  id             uuid        primary key default gen_random_uuid(),
+  created_at     timestamptz not null    default now(),
+  usuario_id     uuid        references auth.users(id) on delete set null,
+  usuario_email  text,
+  accion         text        not null,
+  entidad        text,
+  entidad_id     text,
+  datos          jsonb,
+  plataforma     text
+);
+
+-- Índices para las consultas habituales del dashboard de actividad.
+create index if not exists audit_log_created_at_idx
+  on public.audit_log (created_at desc);
+create index if not exists audit_log_usuario_id_idx
+  on public.audit_log (usuario_id);
+create index if not exists audit_log_accion_idx
+  on public.audit_log (accion);
+
+comment on table public.audit_log is
+  'Registro inmutable de acciones de usuario. Solo admin puede leer; '
+  'cualquier usuario autenticado puede insertar sus propias entradas. '
+  'No se permite UPDATE ni DELETE desde la app.';
+
+-- RLS
+alter table public.audit_log enable row level security;
+
+-- Admin lee todos los registros
+drop policy if exists "admin lee audit_log" on public.audit_log;
+create policy "admin lee audit_log"
+  on public.audit_log for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.perfiles
+      where id = auth.uid() and rol = 'admin'
+    )
+  );
+
+-- Cualquier usuario autenticado puede insertar su propio registro
+drop policy if exists "authenticated inserta audit_log" on public.audit_log;
+create policy "authenticated inserta audit_log"
+  on public.audit_log for insert
+  to authenticated
+  with check (
+    usuario_id = auth.uid() or usuario_id is null
+  );
+
+-- Realtime para el panel de actividad (admin lo observa en tiempo real)
+-- Se agrega en el bloque DO de abajo junto con las demás tablas.
+
+-- ----------------------------------------------------------------------------
+-- 10) REALTIME: emitir cambios por WebSocket
 -- ----------------------------------------------------------------------------
 do $$
 begin
@@ -342,6 +434,10 @@ begin
   end;
   begin
     alter publication supabase_realtime add table public.pagos;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.audit_log;
   exception when duplicate_object then null;
   end;
 end $$;

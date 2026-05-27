@@ -75,7 +75,9 @@ class _ClienteFormDialogState extends ConsumerState<_ClienteFormDialog> {
     );
 
     try {
-      await ref.read(clientesControllerProvider).upsertCliente(cliente);
+      await ref
+          .read(clientesControllerProvider)
+          .upsertCliente(cliente, esNuevo: !_esEdicion);
       if (!mounted) return;
       Navigator.of(context).pop(cliente);
     } catch (e) {
@@ -137,7 +139,9 @@ class _ClienteFormDialogState extends ConsumerState<_ClienteFormDialog> {
 
     setState(() => _guardando = true);
     try {
-      await ref.read(clientesControllerProvider).eliminarCliente(cliente.id);
+      await ref
+          .read(clientesControllerProvider)
+          .eliminarCliente(cliente.id, nombre: cliente.nombre);
       if (!mounted) return;
       Navigator.of(context).pop();
       messenger.showSnackBar(

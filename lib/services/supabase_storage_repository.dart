@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
 import 'storage_repository.dart';
 
@@ -12,10 +11,17 @@ import 'storage_repository.dart';
 ///   - `fotos-ordenes`    (público)
 ///   - `cotizaciones-pdf` (público)
 ///
-/// Convención de path: `<ordenId>/<uuid>_<nombre_seguro>`. Incluir el
-/// `ordenId` arriba facilita auditoría (todos los archivos de una orden
-/// en una "carpeta") y permite eventuales limpiezas masivas. El `uuid`
-/// previene colisiones entre archivos con el mismo nombre.
+/// Convención de path:
+///   `YYYY-MM/<8chars-ordenId>/<yyyyMMdd_HHmmss>_<nombre_seguro>`
+///
+/// Ejemplos:
+///   fotos-ordenes/2026-05/3f2a1b4c/20260526_143022_foto_daño.jpg
+///   cotizaciones-pdf/2026-05/3f2a1b4c/20260526_144510_OEM.pdf
+///
+/// El agrupamiento por mes facilita la navegación en el dashboard de
+/// Supabase y las limpiezas periódicas. El short-id (8 chars) identifica
+/// la orden sin revelar el UUID completo en la URL pública. El timestamp
+/// garantiza unicidad y ordena cronológicamente dentro de la carpeta.
 class SupabaseStorageRepository implements StorageRepository {
   static const String _bucketFotos = 'fotos-ordenes';
   static const String _bucketPdfs = 'cotizaciones-pdf';
@@ -58,13 +64,28 @@ class SupabaseStorageRepository implements StorageRepository {
     return _client.storage.from(_bucketPdfs).getPublicUrl(path);
   }
 
+  /// Construye el path final:
+  ///   `YYYY-MM/<8chars-ordenId>/<yyyyMMdd_HHmmss>_<nombre_seguro>`
   String _construirPath(String ordenId, String nombreArchivo) {
-    final uuid = const Uuid().v4();
-    // Solo letras, números, punto, guion, guion bajo en el nombre final.
-    // Supabase storage prohibe varios caracteres especiales en paths.
-    final safe = nombreArchivo
-        .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    return '$ordenId/${uuid}_$safe';
+    final now = DateTime.now();
+    final mes =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final shortId = ordenId.length >= 8
+        ? ordenId.substring(0, 8)
+        : ordenId;
+    final ts = '${now.year}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}'
+        '_${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}'
+        '${now.second.toString().padLeft(2, '0')}';
+
+    // Solo letras, números, punto, guion, guion bajo.
+    // Supabase Storage prohíbe varios caracteres especiales en paths.
+    final safe =
+        nombreArchivo.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+    return '$mes/$shortId/${ts}_$safe';
   }
 
   String _contentTypeImagen(String nombreArchivo) {
