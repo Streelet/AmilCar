@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/cliente.dart';
 import '../../models/orden_trabajo.dart';
 import '../../providers/clientes_provider.dart';
 import '../../providers/filtros_provider.dart';
 import '../../providers/ordenes_trabajo_provider.dart';
+import '../../services/pdf_export_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/estado_style.dart';
 import '../widgets/aprobacion_dialog.dart';
 import '../widgets/barra_filtros.dart';
 import '../widgets/kanban_card.dart';
+import '../widgets/pdf_preview_screen.dart';
 
 /// Ancho mínimo de cada columna antes de pasar a scroll horizontal.
 const double _anchoMinColumna = 300;
@@ -39,6 +42,7 @@ class PendientesEstimadoTab extends ConsumerWidget {
       data: (todos) {
         final filtroCliente = ref.watch(filtroClienteIdProvider);
         final filtroRango = ref.watch(filtroRangoFechasProvider);
+        final clientesById = ref.watch(clientesByIdProvider);
 
         final delTablero = todos.where((o) {
           if (o.archivado) return false;
@@ -58,19 +62,27 @@ class PendientesEstimadoTab extends ConsumerWidget {
           return true;
         }).toList();
 
-        return _Tablero(ordenesTrabajo: delTablero);
+        return _Tablero(
+          ordenesTrabajo: delTablero,
+          clientesById: clientesById,
+        );
       },
     );
   }
 }
 
 class _Tablero extends StatelessWidget {
-  const _Tablero({required this.ordenesTrabajo});
+  const _Tablero({
+    required this.ordenesTrabajo,
+    required this.clientesById,
+  });
 
   final List<OrdenTrabajo> ordenesTrabajo;
+  final Map<String, Cliente> clientesById;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     const padH = AppSpacing.marginMobile - 6;
     const padV = 4.0;
     const padInferior = AppSpacing.marginMobile;
@@ -81,6 +93,33 @@ class _Tablero extends StatelessWidget {
         // Zona para cerrar el trato arrastrando una tarjeta fuera de
         // "Esperando Aprobación".
         const _ZonaCierreTrato(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(padH, 8, padH, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${ordenesTrabajo.length} orden'
+                  '${ordenesTrabajo.length == 1 ? '' : 'es'} en estimado',
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
+              if (ordenesTrabajo.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => _exportarPdf(
+                    context,
+                    items: ordenesTrabajo,
+                    clientesById: clientesById,
+                  ),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+                  label: const Text('Exportar PDF'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+            ],
+          ),
+        ),
         // Barra compacta de filtros (cliente + rango de fechas).
         const BarraFiltros(),
         Expanded(
@@ -138,6 +177,27 @@ class _Tablero extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _exportarPdf(
+    BuildContext context, {
+    required List<OrdenTrabajo> items,
+    required Map<String, Cliente> clientesById,
+  }) async {
+    final nombre = 'pendientes_estimado_${_timestampArchivo()}.pdf';
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => PdfPreviewScreen(
+          titulo: 'Pendientes de Estimado',
+          nombreArchivo: nombre,
+          buildBytes: () => PdfExportService.pendientesDeEstimado(
+            ordenes: items,
+            clientesById: clientesById,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -253,6 +313,12 @@ class _KanbanColumn extends ConsumerWidget {
       },
     );
   }
+}
+
+String _timestampArchivo() {
+  final d = DateTime.now();
+  String dos(int n) => n.toString().padLeft(2, '0');
+  return '${d.year}${dos(d.month)}${dos(d.day)}_${dos(d.hour)}${dos(d.minute)}';
 }
 
 /// Diálogo de confirmación que se muestra antes de mover una tarjeta.

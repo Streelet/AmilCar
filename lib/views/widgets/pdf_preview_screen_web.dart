@@ -44,11 +44,16 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
   @override
   void initState() {
     super.initState();
-    _generar();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _generar();
+    });
   }
 
   Future<void> _generar() async {
     try {
+      // Pequeño delay para que el spinner se renderice y empiece a animar
+      await Future.delayed(const Duration(milliseconds: 50));
+      
       final bytes = await widget.buildBytes();
       if (!mounted) return;
 

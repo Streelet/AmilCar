@@ -235,34 +235,6 @@ class _NuevaOrdenScreenState extends ConsumerState<NuevaOrdenScreen> {
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _marca,
-                        enabled: !_guardando,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Marca',
-                          hintText: 'Toyota',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _modelo,
-                        enabled: !_guardando,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Modelo',
-                          hintText: 'Hilux',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
                     SizedBox(
                       width: 110,
                       child: TextField(
@@ -276,6 +248,34 @@ class _NuevaOrdenScreenState extends ConsumerState<NuevaOrdenScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Año',
                           hintText: '2021',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _marca,
+                        enabled: !_guardando,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Marca',
+                          hintText: 'Toyota',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _modelo,
+                        enabled: !_guardando,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Modelo',
+                          hintText: 'Hilux',
                         ),
                       ),
                     ),

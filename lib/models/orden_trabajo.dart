@@ -125,12 +125,12 @@ class OrdenTrabajo {
   /// Nulo si la orden nunca fue movida desde su creación.
   final DateTime? estadoUpdatedAt;
 
-  /// Descripción corta del vehículo para la tarjeta, ej. "Toyota Hilux 2021".
+  /// Descripción corta del vehículo para la tarjeta, ej. "2021 Toyota Hilux".
   String get vehiculoResumen {
     final partes = [
+      vehiculoAnio?.toString(),
       vehiculoMarca,
       vehiculoModelo,
-      vehiculoAnio?.toString(),
     ].where((p) => p != null && p.isNotEmpty).toList();
     return partes.isEmpty ? 'Vehículo sin especificar' : partes.join(' ');
   }
@@ -190,15 +190,9 @@ class OrdenTrabajo {
       montoAprobado: (json['monto_aprobado'] as num?)?.toDouble(),
       estadoKanban: EstadoKanban.fromDb(json['estado_kanban'] as String?),
       archivado: (json['archivado'] as bool?) ?? false,
-      createdAt: json['created_at'] != null
-          ? DateTime.tryParse(json['created_at'].toString())
-          : null,
-      deletedAt: json['deleted_at'] != null
-          ? DateTime.tryParse(json['deleted_at'].toString())
-          : null,
-      estadoUpdatedAt: json['estado_updated_at'] != null
-          ? DateTime.tryParse(json['estado_updated_at'].toString())
-          : null,
+      createdAt: _parseDateTime(json['created_at']),
+      deletedAt: _parseDateTime(json['deleted_at']),
+      estadoUpdatedAt: _parseDateTime(json['estado_updated_at']),
     );
   }
 
@@ -217,6 +211,7 @@ class OrdenTrabajo {
         'monto_aprobado': montoAprobado,
         'estado_kanban': estadoKanban.dbValue,
         'archivado': archivado,
+        if (createdAt != null) 'created_at': createdAt!.toUtc().toIso8601String(),
       };
 
   OrdenTrabajo copyWith({
@@ -278,5 +273,20 @@ class OrdenTrabajo {
           .toList();
     }
     return const [];
+  }
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    final str = value.toString().trim();
+    if (str.isEmpty) return null;
+    // Intenta parsear directamente primero
+    var parsed = DateTime.tryParse(str);
+    if (parsed != null) return parsed;
+    // Si falla, normaliza: "2026-05-27 18:19:04.229+00" → "2026-05-27T18:19:04.229+00:00"
+    final normalized = str
+        .replaceFirst(' ', 'T')
+        .replaceAll(RegExp(r'\+00(\s|$)'), '+00:00');
+    parsed = DateTime.tryParse(normalized);
+    return parsed;
   }
 }

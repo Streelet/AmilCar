@@ -214,10 +214,11 @@ class _VistaTabla extends ConsumerWidget {
   final AccionRapidaOrden? accionRapida;
   final bool vistaCobros;
 
-  /// Solo las pestañas "Pendientes de Trabajo" y "Pendiente de Pago" tienen
-  /// reporte PDF. Las demás (En Proceso, etc.) no — todavía.
+  /// Solo las pestañas "Pendientes de Trabajo", "En Proceso" y
+  /// "Pendiente de Pago" tienen reporte PDF.
   bool get _puedeExportarPdf =>
       estado == EstadoKanban.pendienteTrabajo ||
+      estado == EstadoKanban.enProceso ||
       estado == EstadoKanban.pendientePago;
 
   @override
@@ -382,11 +383,27 @@ class _VistaTabla extends ConsumerWidget {
     required Map<String, Cliente> clientesById,
     required Map<String, List<Pago>> pagosByOrden,
   }) async {
-    final esPago = estado == EstadoKanban.pendientePago;
-    final titulo = esPago ? 'Pendientes de Pago' : 'Pendientes de Trabajo';
-    final nombre = esPago
-        ? 'pendientes_de_pago_${_timestampArchivo()}.pdf'
-        : 'pendientes_de_trabajo_${_timestampArchivo()}.pdf';
+    PdfIdioma? idiomaPago;
+    if (estado == EstadoKanban.pendientePago) {
+      idiomaPago = await _elegirIdiomaPdf(context);
+      if (idiomaPago == null) return;
+    }
+    final (titulo, nombre) = switch (estado) {
+      EstadoKanban.pendientePago => (
+          idiomaPago == PdfIdioma.en ? 'Pending invoices' : 'Facturas pendientes',
+          idiomaPago == PdfIdioma.en
+              ? 'pending_invoices_${_timestampArchivo()}.pdf'
+              : 'facturas_pendientes_${_timestampArchivo()}.pdf',
+        ),
+      EstadoKanban.enProceso => (
+          'En Proceso',
+          'en_proceso_${_timestampArchivo()}.pdf',
+        ),
+      _ => (
+          'Pendientes de Trabajo',
+          'pendientes_de_trabajo_${_timestampArchivo()}.pdf',
+        ),
+    };
 
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -394,18 +411,60 @@ class _VistaTabla extends ConsumerWidget {
         builder: (_) => PdfPreviewScreen(
           titulo: titulo,
           nombreArchivo: nombre,
-          buildBytes: () => esPago
-              ? PdfExportService.pendientesDePago(
+          buildBytes: () {
+            switch (estado) {
+              case EstadoKanban.pendientePago:
+                return PdfExportService.pendientesDePago(
                   ordenes: items,
                   clientesById: clientesById,
                   pagosByOrdenId: pagosByOrden,
-                )
-              : PdfExportService.pendientesDeTrabajo(
+                  idioma: idiomaPago ?? PdfIdioma.es,
+                );
+              case EstadoKanban.enProceso:
+                return PdfExportService.enProceso(
                   ordenes: items,
                   clientesById: clientesById,
-                ),
+                );
+              case EstadoKanban.pendienteTrabajo:
+                return PdfExportService.pendientesDeTrabajo(
+                  ordenes: items,
+                  clientesById: clientesById,
+                );
+              case EstadoKanban.porHacer:
+              case EstadoKanban.listosParaEnviar:
+              case EstadoKanban.esperandoAprobacion:
+                return PdfExportService.pendientesDeTrabajo(
+                  ordenes: items,
+                  clientesById: clientesById,
+                );
+            }
+          },
         ),
       ),
+    );
+  }
+
+  Future<PdfIdioma?> _elegirIdiomaPdf(BuildContext context) {
+    return showDialog<PdfIdioma>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Idioma del PDF'),
+          content: const Text(
+            'Elige el idioma para el reporte de facturas pendientes.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(PdfIdioma.es),
+              child: const Text('Español'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(PdfIdioma.en),
+              child: const Text('English'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -583,14 +642,15 @@ class _CeldaVehiculo extends StatelessWidget {
 }
 
 /// Celda que muestra cuándo la orden entró al estado actual.
-/// Usa [OrdenTrabajo.estadoUpdatedAt] (poblado por el trigger de Postgres).
+/// Usa [OrdenTrabajo.estadoUpdatedAt] y cae a [OrdenTrabajo.createdAt]
+/// cuando la orden se creó directamente en el estado.
 class _CeldaDesde extends StatelessWidget {
   const _CeldaDesde({required this.orden});
   final OrdenTrabajo orden;
 
   @override
   Widget build(BuildContext context) {
-    final fecha = orden.estadoUpdatedAt;
+    final fecha = orden.estadoUpdatedAt ?? orden.createdAt;
     final theme = Theme.of(context);
 
     if (fecha == null) {
@@ -905,4 +965,3 @@ class _Mensaje extends StatelessWidget {
     );
   }
 }
-

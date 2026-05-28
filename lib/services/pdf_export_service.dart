@@ -8,19 +8,24 @@ import '../config/app_config.dart';
 import '../models/cliente.dart';
 import '../models/orden_trabajo.dart';
 import '../models/pago.dart';
+import '../models/pdf_cotizacion.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────
 ///  PdfExportService
 ///
 ///  Genera reportes PDF profesionales de las listas de órdenes de trabajo.
-///  Dos reportes soportados:
+///  Reportes soportados:
+///   • Pendientes de Estimado (3 secciones por columna de Kanban)
 ///   • Pendientes de Trabajo  (columnas: cliente, vehículo, monto, contacto)
+///   • En Proceso             (columnas: cliente, vehículo, monto, contacto)
 ///   • Pendientes de Pago     (columnas: cliente, vehículo, total, cobrado,
 ///                              restante, desde)
 ///
 ///  El layout es A4 vertical con encabezado, resumen, tabla auto-paginada
 ///  y pie con número de página.
 /// ─────────────────────────────────────────────────────────────────────────
+
+enum PdfIdioma { es, en }
 
 class PdfExportService {
   // ── Paleta usada en el PDF (consistente con la app: grafito azulado) ──
@@ -90,9 +95,11 @@ class PdfExportService {
     required List<OrdenTrabajo> ordenes,
     required Map<String, Cliente> clientesById,
     required Map<String, List<Pago>> pagosByOrdenId,
+    PdfIdioma idioma = PdfIdioma.es,
   }) async {
+    final es = idioma == PdfIdioma.es;
     final doc = pw.Document(
-      title: 'Pendientes de Pago',
+      title: es ? 'Facturas pendientes' : 'Pending invoices',
       author: 'AmilCar Auto Service',
     );
     final logo = await _cargarLogo();
@@ -121,17 +128,23 @@ class PdfExportService {
         margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 28),
         header: (ctx) => _encabezado(
           logo: logo,
-          titulo: 'Pendientes de Pago',
+          titulo: es ? 'Facturas pendientes' : 'Pending invoices',
         ),
         footer: _pieDePagina,
         build: (ctx) => [
           _resumen(
             generadoEn: DateTime.now(),
+            titulo: es ? 'Resumen' : 'Summary',
+            generadoLabel: es ? 'Generado' : 'Generated',
             items: [
-              ('Total de órdenes', '${ordenadas.length}'),
-              ('Total aprobado', _fmtMonto(totalAprobado)),
-              ('Cobrado', _fmtMonto(totalCobrado)),
-              ('Restante', _fmtMonto(totalRestante)),
+              (es ? 'Facturas pendientes' : 'Pending invoices',
+                  '${ordenadas.length}'),
+              (es ? 'Total de facturas' : 'Total invoices',
+                  _fmtMonto(totalAprobado)),
+              (es ? 'Pagos recibidos' : 'Payments received',
+                  _fmtMonto(totalCobrado)),
+              (es ? 'Saldo pendiente' : 'Balance due',
+                  _fmtMonto(totalRestante)),
             ],
           ),
           pw.SizedBox(height: 14),
@@ -139,6 +152,130 @@ class PdfExportService {
             ordenes: ordenadas,
             clientesById: clientesById,
             pagosByOrdenId: pagosByOrdenId,
+            idioma: idioma,
+          ),
+        ],
+      ),
+    );
+
+    return doc.save();
+  }
+
+  /// Genera el PDF de **En Proceso**.
+  /// Devuelve los bytes listos para descargar/compartir.
+  static Future<Uint8List> enProceso({
+    required List<OrdenTrabajo> ordenes,
+    required Map<String, Cliente> clientesById,
+  }) async {
+    final doc = pw.Document(
+      title: 'En Proceso',
+      author: 'AmilCar Auto Service',
+    );
+    final logo = await _cargarLogo();
+    final ordenadas = [...ordenes]
+      ..sort((a, b) {
+        final fa = a.estadoUpdatedAt ?? a.createdAt ?? DateTime(1970);
+        final fb = b.estadoUpdatedAt ?? b.createdAt ?? DateTime(1970);
+        return fa.compareTo(fb); // más antiguas primero
+      });
+
+    final montoTotal = ordenadas
+        .where((o) => o.montoAprobado != null)
+        .fold<double>(0, (a, o) => a + o.montoAprobado!);
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 28),
+        header: (ctx) => _encabezado(
+          logo: logo,
+          titulo: 'En Proceso',
+        ),
+        footer: _pieDePagina,
+        build: (ctx) => [
+          _resumen(
+            generadoEn: DateTime.now(),
+            items: [
+              ('Total de órdenes', '${ordenadas.length}'),
+              ('Monto aprobado', _fmtMonto(montoTotal)),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+          _tablaPendientesTrabajo(
+            ordenes: ordenadas,
+            clientesById: clientesById,
+          ),
+        ],
+      ),
+    );
+
+    return doc.save();
+  }
+
+  /// Genera el PDF de **Pendientes de Estimado**.
+  /// Devuelve los bytes listos para descargar/compartir.
+  static Future<Uint8List> pendientesDeEstimado({
+    required List<OrdenTrabajo> ordenes,
+    required Map<String, Cliente> clientesById,
+  }) async {
+    final doc = pw.Document(
+      title: 'Pendientes de Estimado',
+      author: 'AmilCar Auto Service',
+    );
+    final logo = await _cargarLogo();
+
+    final porHacer = ordenes
+        .where((o) => o.estadoKanban == EstadoKanban.porHacer)
+        .toList()
+      ..sort(_compareAntiguedad);
+    final listos = ordenes
+        .where((o) => o.estadoKanban == EstadoKanban.listosParaEnviar)
+        .toList()
+      ..sort(_compareAntiguedad);
+    final esperando = ordenes
+        .where((o) => o.estadoKanban == EstadoKanban.esperandoAprobacion)
+        .toList()
+      ..sort(_compareAntiguedad);
+
+    final conCotizacion = ordenes.where((o) => o.pdfsUrls.isNotEmpty).length;
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 28),
+        header: (ctx) => _encabezado(
+          logo: logo,
+          titulo: 'Pendientes de Estimado',
+        ),
+        footer: _pieDePagina,
+        build: (ctx) => [
+          _resumen(
+            generadoEn: DateTime.now(),
+            items: [
+              ('Total de órdenes', '${ordenes.length}'),
+              ('Por hacer', '${porHacer.length}'),
+              ('Listos para enviar', '${listos.length}'),
+              ('Esperando aprobación', '${esperando.length}'),
+              ('Con cotización', '$conCotizacion'),
+            ],
+          ),
+          pw.SizedBox(height: 12),
+          _seccionTitulo('Por Hacer', porHacer.length),
+          _tablaPendientesEstimado(
+            ordenes: porHacer,
+            clientesById: clientesById,
+          ),
+          pw.SizedBox(height: 12),
+          _seccionTitulo('Listos para Enviar', listos.length),
+          _tablaPendientesEstimado(
+            ordenes: listos,
+            clientesById: clientesById,
+          ),
+          pw.SizedBox(height: 12),
+          _seccionTitulo('Esperando Aprobación', esperando.length),
+          _tablaPendientesEstimado(
+            ordenes: esperando,
+            clientesById: clientesById,
           ),
         ],
       ),
@@ -211,6 +348,8 @@ class PdfExportService {
   static pw.Widget _resumen({
     required DateTime generadoEn,
     required List<(String, String)> items,
+    String titulo = 'Resumen',
+    String generadoLabel = 'Generado',
   }) {
     return pw.Container(
       padding: const pw.EdgeInsets.all(12),
@@ -225,7 +364,7 @@ class PdfExportService {
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text(
-                'Resumen',
+                titulo,
                 style: pw.TextStyle(
                   fontSize: 10,
                   fontWeight: pw.FontWeight.bold,
@@ -234,7 +373,7 @@ class PdfExportService {
                 ),
               ),
               pw.Text(
-                'Generado: ${_fmtFechaHora(generadoEn)}',
+                '$generadoLabel: ${_fmtFechaHora(generadoEn)}',
                 style: pw.TextStyle(
                   fontSize: 8,
                   color: _gris,
@@ -324,15 +463,17 @@ class PdfExportService {
     required List<OrdenTrabajo> ordenes,
     required Map<String, Cliente> clientesById,
     required Map<String, List<Pago>> pagosByOrdenId,
+    required PdfIdioma idioma,
   }) {
+    final es = idioma == PdfIdioma.es;
     final headers = [
       '#',
-      'Cliente',
-      'Vehículo',
-      'Total',
-      'Cobrado',
-      'Restante',
-      'Desde',
+      es ? 'Cliente' : 'Client',
+      es ? 'Vehículo' : 'Vehicle',
+      es ? 'Total' : 'Total',
+      es ? 'Cobrado' : 'Paid',
+      es ? 'Restante' : 'Balance',
+      es ? 'Desde' : 'Since',
     ];
     final widths = <int, pw.TableColumnWidth>{
       0: const pw.FixedColumnWidth(22),
@@ -347,6 +488,8 @@ class PdfExportService {
     // Pre-calcula cobrado/restante por orden, y guarda si está pagado.
     final filas = <List<String>>[];
     final estilosRestante = <pw.TextStyle?>[];
+    final clienteDesconocido = es ? 'Cliente desconocido' : 'Unknown client';
+    final pagadoLabel = es ? 'Pagado' : 'Paid';
     for (int i = 0; i < ordenes.length; i++) {
       final o = ordenes[i];
       final aprobado = o.montoAprobado ?? 0;
@@ -358,14 +501,14 @@ class PdfExportService {
 
       filas.add([
         '${i + 1}',
-        clientesById[o.clienteId]?.nombre ?? 'Cliente desconocido',
+        clientesById[o.clienteId]?.nombre ?? clienteDesconocido,
         o.vehiculoResumen,
         o.montoAprobado != null ? _fmtMonto(aprobado) : '-',
         cobrado > 0 ? _fmtMonto(cobrado) : '-',
         o.montoAprobado == null
             ? '-'
             : restante <= 0
-                ? 'Pagado'
+                ? pagadoLabel
                 : _fmtMonto(restante),
         _fmtFechaCorta(o.estadoUpdatedAt ?? o.createdAt),
       ]);
@@ -401,6 +544,56 @@ class PdfExportService {
       estilosPorCelda: (rowIndex, colIndex) {
         if (colIndex == 5) return estilosRestante[rowIndex];
         return null;
+      },
+    );
+  }
+
+  static pw.Widget _tablaPendientesEstimado({
+    required List<OrdenTrabajo> ordenes,
+    required Map<String, Cliente> clientesById,
+  }) {
+    final headers = [
+      '#',
+      'Cliente',
+      'Vehículo',
+      'Contacto',
+      'Cots.',
+      'Rango',
+      'Desde',
+    ];
+    final widths = <int, pw.TableColumnWidth>{
+      0: const pw.FixedColumnWidth(22),
+      1: const pw.FlexColumnWidth(2.2),
+      2: const pw.FlexColumnWidth(2.2),
+      3: const pw.FlexColumnWidth(1.4),
+      4: const pw.FlexColumnWidth(1.0),
+      5: const pw.FlexColumnWidth(1.6),
+      6: const pw.FlexColumnWidth(1.2),
+    };
+
+    return _tablaBase(
+      headers: headers,
+      widths: widths,
+      rows: [
+        for (int i = 0; i < ordenes.length; i++)
+          [
+            '${i + 1}',
+            clientesById[ordenes[i].clienteId]?.nombre ?? 'Cliente desconocido',
+            ordenes[i].vehiculoResumen,
+            clientesById[ordenes[i].clienteId]?.telefono ?? '-',
+            ordenes[i].pdfsUrls.isEmpty
+                ? '-'
+                : '${ordenes[i].pdfsUrls.length}',
+            _fmtRangoCotizaciones(ordenes[i].pdfsUrls),
+            _fmtFechaCorta(
+                ordenes[i].estadoUpdatedAt ?? ordenes[i].createdAt),
+          ],
+      ],
+      alineacionesPorColumna: const {
+        0: pw.Alignment.centerRight,
+        4: pw.Alignment.center,
+        5: pw.Alignment.centerRight,
+        6: pw.Alignment.center,
       },
     );
   }
@@ -558,6 +751,58 @@ class PdfExportService {
     final d = fecha.toLocal();
     String dos(int n) => n.toString().padLeft(2, '0');
     return '${dos(d.day)}/${dos(d.month)}/${d.year} ${dos(d.hour)}:${dos(d.minute)}';
+  }
+
+  static int _compareAntiguedad(OrdenTrabajo a, OrdenTrabajo b) {
+    final fa = a.estadoUpdatedAt ?? a.createdAt ?? DateTime(1970);
+    final fb = b.estadoUpdatedAt ?? b.createdAt ?? DateTime(1970);
+    return fa.compareTo(fb);
+  }
+
+  static String _fmtRangoCotizaciones(List<PdfCotizacion> cotizaciones) {
+    if (cotizaciones.isEmpty) return '-';
+    var min = cotizaciones.first.montoSugerido;
+    var max = cotizaciones.first.montoSugerido;
+    for (final c in cotizaciones.skip(1)) {
+      if (c.montoSugerido < min) min = c.montoSugerido;
+      if (c.montoSugerido > max) max = c.montoSugerido;
+    }
+    if (min == max) return _fmtMonto(min);
+    return '${_fmtMonto(min)} - ${_fmtMonto(max)}';
+  }
+
+  static pw.Widget _seccionTitulo(String titulo, int total) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.only(bottom: 6),
+      child: pw.Row(
+        children: [
+          pw.Text(
+            titulo,
+            style: pw.TextStyle(
+              fontSize: 11,
+              fontWeight: pw.FontWeight.bold,
+              color: _primario,
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: pw.BoxDecoration(
+              color: _primarioSuave,
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Text(
+              '$total',
+              style: pw.TextStyle(
+                fontSize: 8.5,
+                fontWeight: pw.FontWeight.bold,
+                color: _primario,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Logo ──────────────────────────────────────────────────────────────
